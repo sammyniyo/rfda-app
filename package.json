@@ -1,0 +1,12 @@
+{
+  "name": "rfda-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Rwanda FDA Portal - server, web and mobile",
+  "scripts": {
+    "install:all": "npm install --prefix rwanda-fda-app/server && npm install --prefix rwanda-fda-app/client && npm install --prefix rwanda-fda-app/mobile",
+    "server": "npm run dev --prefix rwanda-fda-app/server",
+    "client": "npm run dev --prefix rwanda-fda-app/client",
+    "mobile": "npm run start --prefix rwanda-fda-app/mobile"
+  }
+}
