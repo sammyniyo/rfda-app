@@ -139,9 +139,7 @@ export default function Notifications() {
   }, [notifications]);
 
   const items = localItems;
-  const unreadCountRaw = items.filter((n) => !n.read_at).length;
-  // Temporary dummy counter so the UI always shows an interesting badge even without real data yet.
-  const unreadCount = unreadCountRaw || 5;
+  const unreadCount = items.filter((n) => !n.read_at).length;
   const grouped = useMemo(() => groupNotifications(items), [items]);
   const showingCached = notificationsQuery.fromCache;
   const lastSyncedAt = notificationsQuery.lastSyncedAt;

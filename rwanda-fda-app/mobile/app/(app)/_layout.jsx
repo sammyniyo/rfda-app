@@ -49,31 +49,6 @@ export default function AppLayout() {
             />
           );
 
-          if (route.name === 'notifications') {
-            const dummyBadge = 5;
-            return (
-              <View style={{ alignItems: 'center' }}>
-                {icon}
-                <View
-                  style={{
-                    position: 'absolute',
-                    top: 2,
-                    right: -2,
-                    minWidth: 16,
-                    height: 16,
-                    borderRadius: 8,
-                    backgroundColor: colors.danger,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    paddingHorizontal: 3,
-                  }}
-                >
-                  <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>{dummyBadge}</Text>
-                </View>
-              </View>
-            );
-          }
-
           return icon;
         },
         tabBarLabel: ({ focused, color }) => (

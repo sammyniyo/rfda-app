@@ -1,7 +1,7 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from "react";
 
-const TOKEN_KEY = 'rwanda_fda_token';
-const USER_KEY = 'rwanda_fda_user';
+const TOKEN_KEY = "rwanda_fda_token";
+const USER_KEY = "rwanda_fda_user";
 
 const AuthContext = createContext(null);
 
@@ -11,14 +11,15 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const t = localStorage.getItem(TOKEN_KEY);
-    const u = localStorage.getItem(USER_KEY);
-    if (t && u) {
-      setTokenState(t);
-      try {
-        setUser(JSON.parse(u));
-      } catch {}
-    }
+    // Uncomment below to enable auto-login with localStorage persistence
+    // const t = localStorage.getItem(TOKEN_KEY);
+    // const u = localStorage.getItem(USER_KEY);
+    // if (t && u) {
+    //   setTokenState(t);
+    //   try {
+    //     setUser(JSON.parse(u));
+    //   } catch {}
+    // }
     setLoading(false);
   }, []);
 
@@ -45,6 +46,6 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
 }

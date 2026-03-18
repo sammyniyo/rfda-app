@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   --fda-green: #0d5c2e;
   --fda-green-dark: #084020;
@@ -21,11 +25,11 @@
   --warning: #d97706;
   --radius: 14px;
   --radius-lg: 20px;
-  --shadow: 0 1px 3px rgba(0,0,0,.05);
-  --shadow-md: 0 4px 12px rgba(15,23,42,.06);
-  --shadow-lg: 0 12px 40px rgba(15,23,42,.08);
-  --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
-  --font-serif: 'Instrument Serif', Georgia, serif;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 12px 40px rgba(15, 23, 42, 0.08);
+  --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-serif: "Instrument Serif", Georgia, serif;
 }
 
 * {
@@ -88,7 +92,7 @@ button {
 }
 
 .page-loading::before {
-  content: '';
+  content: "";
   width: 36px;
   height: 36px;
   border: 3px solid var(--border);
@@ -98,5 +102,26 @@ button {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Global animations */
+@layer components {
+  .glass {
+    @apply backdrop-blur-md bg-white/80 dark:bg-slate-900/80;
+  }
+
+  .card-hover {
+    @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-1;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-lg font-semibold hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-secondary-100 text-secondary-700 rounded-lg font-semibold hover:bg-secondary-200 transition-all duration-200;
+  }
 }

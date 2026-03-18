@@ -15,46 +15,7 @@ import { DashboardSkeleton } from '../../components/SkeletonLoader';
 
 const DASHBOARD_AUTO_REFRESH_MS = 60000;
 
-// Temporary sample data so the dashboard UI looks complete while tasks/apps APIs are still being built.
-const FALLBACK_TASKS = [
-  {
-    id: 1,
-    title: 'Review pharmacovigilance report',
-    description: 'Screen latest safety reports and flag serious events for follow-up.',
-    status: 'in_progress',
-    priority: 'high',
-    due_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    application_id: 'PV-2026-014',
-  },
-  {
-    id: 2,
-    title: 'Check import permit documents',
-    description: 'Verify completeness of supporting documents and attachments.',
-    status: 'pending',
-    priority: 'medium',
-    due_date: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
-    application_id: 'IP-2026-089',
-  },
-];
-
-const FALLBACK_APPS = [
-  {
-    id: 101,
-    reference_number: 'INV-0046',
-    title: 'Market authorization renewal – Griverson Trust',
-    status: 'submitted',
-    type: 'Marketing Authorization',
-    updated_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 102,
-    reference_number: 'PV-2026-014',
-    title: 'Safety variation – new adverse event data',
-    status: 'on_hold',
-    type: 'Variation',
-    updated_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-];
+// Dashboard uses live Monitoring Tool APIs (no sample fallbacks).
 
 async function fetchWithAuth(getToken, url) {
   const res = await fetch(url, { headers: getAuthHeaders(getToken) });
@@ -142,33 +103,26 @@ function QuickTile({ icon, label, onPress, tone = 'green' }) {
 }
 
 export default function Dashboard() {
-  const { user, token } = useAuth();
+  const { user, token, perfType } = useAuth();
   const router = useRouter();
   const getToken = () => token;
   const [refreshing, setRefreshing] = useState(false);
 
-  const tasksQuery = useQuery(
+  const performanceQuery = useQuery(
     async () => {
       try {
-        return await fetchWithAuth(getToken, api.tasks);
+        const staffId = user?.staff_id ?? user?.id;
+        if (!staffId) throw new Error('Missing staff id');
+        const res = await fetch(api.performance(staffId, perfType, 'all'), { headers: getAuthHeaders(getToken) });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok || payload?.success === false) throw new Error(payload?.message || 'Failed to load performance');
+        return payload?.data || null;
       } catch {
-        return FALLBACK_TASKS;
+        return null;
       }
     },
-    [token],
-    { cacheKey: `tasks_${token}` }
-  );
-
-  const applicationsQuery = useQuery(
-    async () => {
-      try {
-        return await fetchWithAuth(getToken, api.applications);
-      } catch {
-        return FALLBACK_APPS;
-      }
-    },
-    [token],
-    { cacheKey: `applications_${token}` }
+    [token, user?.id, user?.staff_id, perfType],
+    { cacheKey: `performance_${token}_${user?.staff_id ?? user?.id ?? 'no_staff'}_${perfType || 'type'}` }
   );
 
   const notificationsQuery = useQuery(
@@ -182,13 +136,67 @@ export default function Dashboard() {
     [token],
     { cacheKey: `notifications_${token}` }
   );
-  const { data: tasks = [], loading: tasksLoading } = tasksQuery;
-  const { data: applications = [] } = applicationsQuery;
+  const { data: performanceData, loading: perfLoading } = performanceQuery;
   const { data: notifications = [] } = notificationsQuery;
 
-  const taskList = Array.isArray(tasks) ? tasks : [];
-  const appList = Array.isArray(applications) ? applications : [];
+  const rawTasks = Array.isArray(performanceData?.tasks) ? performanceData.tasks : [];
+  const rawApps = Array.isArray(performanceData?.applications) ? performanceData.applications : [];
+
+  const taskList = rawTasks.map((t, index) => {
+        const rawStatus = String(t.status ?? t.task_status ?? '').toLowerCase();
+        const normalizedStatus = t.is_completed
+          ? 'completed'
+          : rawStatus === 'pending'
+            ? 'pending'
+            : rawStatus === 'in_progress'
+              ? 'in_progress'
+              : rawStatus
+                ? 'in_progress'
+                : t.is_active
+                  ? 'in_progress'
+                  : 'pending';
+
+        const rawPriority = String(t.priority ?? t.task_priority ?? '').toLowerCase();
+        const normalizedPriority = rawPriority === 'urgent' ? 'high' : rawPriority || null;
+
+        return {
+          id: t.task_id ?? t.id ?? index + 1,
+          title: t.title ?? t.task_title ?? t.name ?? 'Task',
+          description: t.description ?? t.task_description ?? t.details ?? '',
+          status: normalizedStatus,
+          priority: normalizedPriority,
+          due_date: t.due_date ?? t.deadline ?? t.dueAt ?? null,
+          application_id: t.application_id ?? t.tracking_no ?? t.app_id ?? null,
+          created_at: t.created_at ?? t.createdAt ?? null,
+          assigned_at: t.assigned_at ?? t.assignedAt ?? null,
+          updated_at: t.updated_at ?? t.updatedAt ?? null,
+          completed_at: t.completed_at ?? null,
+          timeline_status: t.timeline_status ?? null,
+          days_allowed: t.days_allowed ?? null,
+          days_taken: t.days_taken ?? null,
+          days_remaining: t.days_remaining ?? null,
+        };
+      });
+
+  const appList = rawApps.map((a) => ({
+    id: a.application_id ?? a.assignment_id,
+    reference_number: a.tracking_no,
+    title: a.applicant,
+    status: a.timeline_status || (a.is_completed ? 'approved' : a.is_active ? 'pending' : 'submitted'),
+    type: performanceData?.filter?.application_type_label || performanceData?.filter?.application_type || 'Application',
+    submitted_at: a.submission_date,
+    updated_at: a.assignment_date,
+    assigned_stage: a.assigned_stage,
+    days_allowed: a.days_allowed,
+    days_taken: a.days_taken,
+    days_remaining: a.days_remaining,
+  }));
+
   const notifList = Array.isArray(notifications) ? notifications : [];
+
+  const apiFairScore = typeof performanceData?.fair_score === 'number' ? performanceData.fair_score : null;
+  const apiScoreLabel = performanceData?.score_label ? String(performanceData.score_label) : null;
+  const appsSummary = performanceData?.applications_summary || null;
 
   const pendingTasks = taskList.filter((t) => t.status !== 'completed').length;
   const inProgressTasks = taskList.filter((t) => t.status === 'in_progress').length;
@@ -214,23 +222,26 @@ export default function Dashboard() {
     const due = toDate(t.due_date);
     return due && due > endToday && due <= next48h;
   });
-  const atRiskApplications = appList.filter((a) => ['on_hold', 'pending', 'submitted'].includes(String(a.status || '').toLowerCase()));
-  const approvalsWaiting = appList.filter((a) => ['submitted', 'pending'].includes(String(a.status || '').toLowerCase()));
+  const atRiskApplicationsCount =
+    typeof appsSummary?.at_risk === 'number'
+      ? appsSummary.at_risk
+      : rawApps.filter((a) => ['at_risk', 'tobedelayed', 'delayed'].includes(String(a.timeline_status || '').toLowerCase())).length;
+  const approvalsWaitingCount =
+    typeof appsSummary?.active === 'number'
+      ? appsSummary.active
+      : rawApps.filter((a) => Boolean(a.is_active) && !Boolean(a.is_completed)).length;
   const highPriorityOpen = taskList.filter((t) => t.status !== 'completed' && String(t.priority || '').toLowerCase() === 'high');
 
-  const briefingScore = Math.max(
-    0,
-    Math.min(
-      100,
-      Math.round(
-        100 -
-          overdueTasks.length * 14 -
-          dueTodayTasks.length * 6 -
-          atRiskApplications.length * 5 +
-          completedTasks * 2
-      )
-    )
-  );
+  const briefingScore =
+    apiFairScore != null
+      ? apiFairScore
+      : Math.max(
+          0,
+          Math.min(
+            100,
+            Math.round(100 - overdueTasks.length * 14 - dueTodayTasks.length * 6 - atRiskApplicationsCount * 5 + completedTasks * 2)
+          )
+        );
   const briefingTone =
     briefingScore >= 80 ? { label: 'On track', color: colors.success, bg: '#e7faf0' } :
     briefingScore >= 60 ? { label: 'Watch list', color: colors.warning, bg: '#fff6ea' } :
@@ -253,7 +264,10 @@ export default function Dashboard() {
       tone: '#fff6ea',
       dot: colors.warning,
     })),
-    ...approvalsWaiting.slice(0, 2).map((a) => ({
+    ...appList
+      .filter((a) => ['submitted', 'pending'].includes(String(a.status || '').toLowerCase()))
+      .slice(0, 2)
+      .map((a) => ({
       key: `app-wait-${a.id}`,
       type: 'Application Review',
       title: a.reference_number || a.title || `Application #${a.id}`,
@@ -269,7 +283,7 @@ export default function Dashboard() {
 
   const rawName = user?.name || user?.email || 'Staff';
   const displayName = String(rawName).split(' ')[0] || rawName;
-  const queryMeta = [tasksQuery, applicationsQuery, notificationsQuery];
+  const queryMeta = [performanceQuery, notificationsQuery];
   const showingCached = queryMeta.some((q) => q.fromCache);
   const lastSyncedAt = queryMeta
     .map((q) => q.lastSyncedAt)
@@ -284,8 +298,7 @@ export default function Dashboard() {
     setRefreshing(true);
     try {
       await Promise.all([
-        tasksQuery.refetch(),
-        applicationsQuery.refetch(),
+        performanceQuery.refetch(),
         notificationsQuery.refetch(),
       ]);
     } finally {
@@ -297,15 +310,14 @@ export default function Dashboard() {
     if (!token) return undefined;
     const intervalId = setInterval(() => {
       Promise.allSettled([
-        tasksQuery.refetch(),
-        applicationsQuery.refetch(),
+        performanceQuery.refetch(),
         notificationsQuery.refetch(),
       ]);
     }, DASHBOARD_AUTO_REFRESH_MS);
     return () => clearInterval(intervalId);
   }, [token]);
 
-  if (tasksLoading && taskList.length === 0) return <DashboardSkeleton />;
+  if (perfLoading && (!performanceData || appList.length === 0)) return <DashboardSkeleton />;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -317,67 +329,72 @@ export default function Dashboard() {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.fdaGreen} />
         }
       >
-      <FadeInView delay={0} translateY={12}>
-        <View style={styles.topHeaderRow}>
-          <View style={styles.topLeft}>
-            <View style={styles.userAvatar}>
-              <Text style={styles.userAvatarText}>{(user?.name || 'RF').slice(0, 2).toUpperCase()}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.topHello}>Hello, {firstWord(user?.name) || 'Staff'}</Text>
-              <Text style={styles.topMeta} numberOfLines={1}>
-                {user?.dutyStation || 'Rwanda FDA'}
-              </Text>
-            </View>
-          </View>
-          <PressableScale style={styles.topIconBtn} onPress={() => router.push('/(app)/notifications')}>
-            <Ionicons name="notifications-outline" size={20} color={colors.textMuted} />
-            {unreadNotifs > 0 ? <View style={styles.topDot} /> : null}
-          </PressableScale>
-        </View>
-      </FadeInView>
+      <FadeInView delay={0} translateY={14}>
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
 
-      <FadeInView delay={70} translateY={14}>
-        <LinearGradient colors={['#1ba57a', '#17a0a0']} style={styles.hero}>
-          <View style={styles.heroHeader}>
-            <View style={styles.logoRow}>
-              <View style={styles.heroLogoWrapper}>
-                <Image source={require('../../assets/RwandaFDA.png')} style={styles.heroLogo} resizeMode="contain" />
+          <View style={styles.sheetHeaderRow}>
+            <View style={styles.topLeft}>
+              <View style={styles.userAvatar}>
+                <Text style={styles.userAvatarText}>{(user?.name || 'RF').slice(0, 2).toUpperCase()}</Text>
               </View>
-              <View>
-                <Text style={styles.heroEyebrow}>Rwanda FDA</Text>
-                <Text style={styles.heroSubtitle}>Your activity overview</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.topHello}>Hello, {firstWord(user?.name) || 'Staff'}</Text>
+                <Text style={styles.topMeta} numberOfLines={1}>
+                  {user?.dutyStation || 'Rwanda FDA'}
+                </Text>
               </View>
             </View>
-            <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeValue}>{briefingScore}</Text>
-              <Text style={styles.heroBadgeLabel}>Score</Text>
-            </View>
+            <PressableScale style={styles.topIconBtn} onPress={() => router.push('/(app)/notifications')}>
+              <Ionicons name="notifications-outline" size={20} color={colors.textMuted} />
+              {unreadNotifs > 0 ? <View style={styles.topDot} /> : null}
+            </PressableScale>
           </View>
 
-          <View style={styles.heroStatsRow}>
-            <View style={styles.heroStatPill}>
-              <Text style={styles.heroStatValue}>{pendingTasks}</Text>
-              <Text style={styles.heroStatLabel}>Open tasks</Text>
-            </View>
-            <View style={styles.heroStatPill}>
-              <Text style={styles.heroStatValue}>{appList.length}</Text>
-              <Text style={styles.heroStatLabel}>Applications</Text>
-            </View>
-            <View style={styles.heroStatPill}>
-              <Text style={styles.heroStatValue}>{unreadNotifs}</Text>
-              <Text style={styles.heroStatLabel}>Unread</Text>
-            </View>
-          </View>
-        </LinearGradient>
-      </FadeInView>
+          <FadeInView delay={60} translateY={10}>
+            <LinearGradient colors={['#1ba57a', '#17a0a0']} style={styles.hero}>
+              <View style={styles.heroHeader}>
+                <View style={styles.logoRow}>
+                  <View style={styles.heroLogoWrapper}>
+                    <Image source={require('../../assets/RwandaFDA.png')} style={styles.heroLogo} resizeMode="contain" />
+                  </View>
+                  <View>
+                    <Text style={styles.heroEyebrow}>Rwanda FDA</Text>
+                    <Text style={styles.heroSubtitle}>Your activity overview</Text>
+                  </View>
+                </View>
+                <View style={styles.heroBadge}>
+                  <Text style={styles.heroBadgeValue}>{briefingScore}</Text>
+                  <Text style={styles.heroBadgeLabel}>{apiScoreLabel || 'Score'}</Text>
+                </View>
+              </View>
 
-      <FadeInView delay={110} translateY={10}>
-        <View style={styles.quickRow}>
-          <QuickTile icon="checkbox-outline" label="My Tasks" tone="green" onPress={() => router.push('/(app)/tasks')} />
-          <QuickTile icon="document-text-outline" label="Applications" tone="blue" onPress={() => router.push('/(app)/applications')} />
-          <QuickTile icon="notifications-outline" label="Alerts" tone="amber" onPress={() => router.push('/(app)/notifications')} />
-          <QuickTile icon="person-outline" label="Profile" tone="green" onPress={() => router.push('/(app)/profile')} />
+              <View style={styles.heroStatsRow}>
+                <View style={styles.heroStatPill}>
+                  <Text style={styles.heroStatValue}>{pendingTasks}</Text>
+                  <Text style={styles.heroStatLabel}>Open tasks</Text>
+                </View>
+                <View style={styles.heroStatPill}>
+                  <Text style={styles.heroStatValue}>{typeof appsSummary?.total === 'number' ? appsSummary.total : appList.length}</Text>
+                  <Text style={styles.heroStatLabel}>Applications</Text>
+                </View>
+                <View style={styles.heroStatPill}>
+                  <Text style={styles.heroStatValue}>{unreadNotifs}</Text>
+                  <Text style={styles.heroStatLabel}>Unread</Text>
+                </View>
+              </View>
+            </LinearGradient>
+          </FadeInView>
+
+          <FadeInView delay={100} translateY={10}>
+            <View style={styles.quickRow}>
+              <QuickTile icon="checkbox-outline" label="My Tasks" tone="green" onPress={() => router.push('/(app)/tasks')} />
+              <QuickTile icon="document-text-outline" label="Applications" tone="blue" onPress={() => router.push('/(app)/applications')} />
+              <QuickTile icon="notifications-outline" label="Alerts" tone="amber" onPress={() => router.push('/(app)/notifications')} />
+              <QuickTile icon="person-outline" label="Profile" tone="green" onPress={() => router.push('/(app)/profile')} />
+            </View>
+          </FadeInView>
+
         </View>
       </FadeInView>
 
@@ -464,11 +481,11 @@ export default function Dashboard() {
                 <Text style={styles.briefingPillLabel}>Due soon</Text>
               </View>
               <View style={[styles.briefingPill, { backgroundColor: '#e8f0ff', borderColor: 'rgba(33,77,134,0.14)' }]}>
-                <Text style={styles.briefingPillValue}>{approvalsWaiting.length}</Text>
+                <Text style={styles.briefingPillValue}>{approvalsWaitingCount}</Text>
                 <Text style={styles.briefingPillLabel}>To review</Text>
               </View>
               <View style={[styles.briefingPill, { backgroundColor: '#f2fbf6', borderColor: 'rgba(15,94,71,0.12)' }]}>
-                <Text style={styles.briefingPillValue}>{atRiskApplications.length}</Text>
+                <Text style={styles.briefingPillValue}>{atRiskApplicationsCount}</Text>
                 <Text style={styles.briefingPillLabel}>Watch</Text>
               </View>
             </View>
@@ -600,18 +617,34 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: {
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
+    paddingTop: spacing.lg,
     paddingBottom: 88,
     gap: spacing.sm,
+  },
+  sheet: {
+    borderRadius: radius.xl,
+    padding: spacing.md,
+    paddingTop: spacing.lg,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.card,
+  },
+  sheetHandle: {
+    position: 'absolute',
+    top: 10,
+    alignSelf: 'center',
+    width: 52,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: colors.backgroundAlt,
   },
   hero: {
     borderRadius: radius.xl,
     padding: spacing.lg,
-    ...shadow.card,
   },
-  topHeaderRow: {
-    marginTop: 2,
-    marginBottom: spacing.sm,
+  sheetHeaderRow: {
+    marginBottom: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

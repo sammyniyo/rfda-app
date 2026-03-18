@@ -6,10 +6,12 @@ const AuthContext = createContext(null);
 const TOKEN_KEY = 'rwanda_fda_token';
 const USER_KEY = 'rwanda_fda_user';
 const BIOMETRIC_EMAIL_KEY = 'rwanda_fda_biometric_email';
+const PERF_TYPE_KEY = 'rwanda_fda_perf_type';
 
 export function AuthProvider({ children }) {
   const [token, setTokenState] = useState(null);
   const [user, setUser] = useState(null);
+  const [perfType, setPerfTypeState] = useState('hmdr-med');
   const [loading, setLoading] = useState(true);
 
   const setToken = async (newToken, newUser) => {
@@ -33,6 +35,12 @@ export function AuthProvider({ children }) {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     await SecureStore.deleteItemAsync(USER_KEY);
     await SecureStore.deleteItemAsync(BIOMETRIC_EMAIL_KEY);
+  };
+
+  const setPerfType = async (value) => {
+    const next = String(value || '').trim() || 'hmdr-med';
+    setPerfTypeState(next);
+    await SecureStore.setItemAsync(PERF_TYPE_KEY, next);
   };
 
   const enableBiometricEmail = async (email) => {
@@ -68,10 +76,12 @@ export function AuthProvider({ children }) {
     (async () => {
       const t = await getStoredToken();
       const u = await getStoredUser();
+      const storedPerfType = await SecureStore.getItemAsync(PERF_TYPE_KEY).catch(() => null);
       if (t && u) {
         setTokenState(t);
         setUser(u);
       }
+      if (storedPerfType) setPerfTypeState(storedPerfType);
       setLoading(false);
     })();
   }, []);
@@ -81,9 +91,11 @@ export function AuthProvider({ children }) {
       value={{
         token,
         user,
+        perfType,
         loading,
         setToken,
         logout,
+        setPerfType,
         enableBiometricEmail,
         getStoredToken,
         getStoredUser,

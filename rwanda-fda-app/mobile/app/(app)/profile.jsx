@@ -3,7 +3,7 @@ import { Image, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { useQuery } from '../../hooks/useQuery';
 import { colors, spacing, radius, shadow } from '../../constants/theme';
@@ -102,6 +102,8 @@ export default function Profile() {
   const { data: applications = [] } = applicationsQuery;
   const { data: notifications = [] } = notificationsQuery;
 
+  if (!token) return <Redirect href="/" />;
+
   const profile = user || null;
 
   if (authLoading && !profile) {
@@ -159,7 +161,12 @@ export default function Profile() {
               <PressableScale style={styles.iconPill} onPress={() => router.push('/(app)/settings')}>
                 <Ionicons name="settings-outline" size={17} color={colors.text} />
               </PressableScale>
-              <PressableScale style={styles.signOutIconBtn} onPress={logout}>
+              <PressableScale
+                style={styles.signOutIconBtn}
+                onPress={async () => {
+                  await logout();
+                }}
+              >
                 <Ionicons name="log-out-outline" size={18} color={colors.danger} />
               </PressableScale>
             </View>

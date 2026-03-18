@@ -11,48 +11,24 @@ import FadeInView from '../../components/FadeInView';
 import PressableScale from '../../components/PressableScale';
 import { ListSkeleton } from '../../components/SkeletonLoader';
 
-// Temporary sample applications so UI looks complete while real API is built.
-const FALLBACK_APPS = [
-  {
-    id: 101,
-    reference_number: 'INV-0046',
-    title: 'Market authorization renewal – Griverson Trust',
-    status: 'submitted',
-    type: 'Marketing Authorization',
-    amount: 7650,
-    submitted_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    updated_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 102,
-    reference_number: 'PV-2026-014',
-    title: 'Safety variation – new adverse event data',
-    status: 'on_hold',
-    type: 'Variation',
-    fee_amount: 1200,
-    submitted_at: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString(),
-    updated_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 103,
-    reference_number: 'IP-2026-089',
-    title: 'Import permit – cold chain vaccines',
-    status: 'approved',
-    type: 'Import Permit',
-    total_amount: 980,
-    submitted_at: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
-    updated_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-];
+// Applications screen uses live Monitoring Tool APIs (no sample fallbacks).
 
-function statusMeta(status) {
-  const value = String(status || 'pending');
-  if (value === 'approved') return { label: 'Approved', tone: '#e7faf0', text: colors.success, progress: 100 };
-  if (value === 'rejected') return { label: 'Rejected', tone: '#fdecec', text: colors.danger, progress: 100 };
-  if (value === 'on_hold') return { label: 'On Hold', tone: '#fff3e5', text: colors.warning, progress: 45 };
-  if (value === 'submitted') return { label: 'Submitted', tone: '#e8f0ff', text: colors.fdaBlue, progress: 35 };
-  if (value === 'draft') return { label: 'Draft', tone: '#f2f4f7', text: colors.textMuted, progress: 12 };
-  return { label: value.replace('_', ' '), tone: '#fff3e5', text: colors.warning, progress: 55 };
+function statusMeta({ timeline_status, is_active, is_completed, days_remaining }) {
+  const timeline = String(timeline_status || '').toLowerCase();
+  const remaining = Number(days_remaining);
+  const remainingKnown = !Number.isNaN(remaining) && Number.isFinite(remaining);
+
+  if (is_completed) {
+    if (timeline === 'delayed') return { label: 'Completed (Delayed)', tone: '#fdecec', text: colors.danger, progress: 100 };
+    return { label: 'Completed', tone: '#e7faf0', text: colors.success, progress: 100 };
+  }
+
+  if (timeline === 'delayed') return { label: 'Delayed', tone: '#fdecec', text: colors.danger, progress: 70 };
+  if (timeline === 'tobedelayed') return { label: 'At risk', tone: '#fff6ea', text: colors.warning, progress: 55 };
+  if (timeline === 'ontime') return { label: is_active ? 'On track' : 'On time', tone: '#e7faf0', text: colors.success, progress: 45 };
+
+  if (remainingKnown && remaining <= 0) return { label: 'Due now', tone: '#fff6ea', text: colors.warning, progress: 55 };
+  return { label: is_active ? 'Active' : 'Assigned', tone: '#e8f0ff', text: colors.fdaBlue, progress: 40 };
 }
 
 function formatMoney(amount) {
@@ -61,19 +37,19 @@ function formatMoney(amount) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num);
 }
 
-function recommendationForStatus(status) {
-  const key = String(status || '').toLowerCase();
-  if (key === 'submitted' || key === 'pending') return 'Review and decide next action';
-  if (key === 'on_hold') return 'Request update and assign follow-up';
-  if (key === 'draft') return 'Validate submission completeness';
-  if (key === 'approved') return 'Track post-approval milestones';
-  if (key === 'rejected') return 'Document reason and notify applicant';
-  return 'Monitor progress and update status';
+function recommendationForStatus({ timeline_status, is_active, is_completed }) {
+  const timeline = String(timeline_status || '').toLowerCase();
+  if (is_completed) return 'Completed — archive or follow up if needed';
+  if (timeline === 'delayed') return 'Delayed — prioritize and escalate';
+  if (timeline === 'tobedelayed') return 'At risk — act before deadline';
+  if (timeline === 'ontime') return is_active ? 'On track — continue review' : 'On time — verify next step';
+  return is_active ? 'Active — review progress' : 'Assigned — start review';
 }
 
 export default function Applications() {
-  const { token } = useAuth();
+  const { token, user, perfType } = useAuth();
   const getToken = () => token;
+  const staffId = user?.staff_id ?? user?.id;
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -86,16 +62,35 @@ export default function Applications() {
   const applicationsQuery = useQuery(
     async () => {
       try {
-        const res = await fetch(api.applications, { headers: getAuthHeaders(getToken) });
-        if (!res.ok) throw new Error('Failed to load applications');
-        return await res.json();
+        if (!staffId) throw new Error('Missing staff id');
+        const res = await fetch(api.performance(staffId, perfType, 'all'), { headers: getAuthHeaders(getToken) });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok || payload?.success === false) throw new Error(payload?.message || 'Failed to load applications');
+        const rawApps = payload?.data?.applications;
+        const list = Array.isArray(rawApps) ? rawApps : [];
+
+        // Normalize Monitoring Tool assignments to our UI shape.
+        return list.map((a) => ({
+          id: a.application_id ?? a.assignment_id,
+          reference_number: a.tracking_no,
+          title: a.applicant,
+          timeline_status: a.timeline_status || null,
+          is_active: Boolean(a.is_active),
+          is_completed: Boolean(a.is_completed),
+          type: payload?.data?.filter?.application_type_label || payload?.data?.filter?.application_type || 'Application',
+          submitted_at: a.submission_date,
+          updated_at: a.assignment_date,
+          assigned_stage: a.assigned_stage,
+          days_allowed: a.days_allowed,
+          days_taken: a.days_taken,
+          days_remaining: a.days_remaining,
+        }));
       } catch {
-        // While backend is not ready, fall back to local sample data.
-        return FALLBACK_APPS;
+        return [];
       }
     },
-    [token],
-    { cacheKey: `applications_${token}` }
+    [token, staffId, perfType],
+    { cacheKey: `applications_${token}_${staffId || 'no_staff'}_${perfType || 'no_type'}` }
   );
   const { data: applications = [], loading, error } = applicationsQuery;
 
@@ -107,7 +102,7 @@ export default function Applications() {
   const queryText = search.trim().toLowerCase();
   const filteredList = useMemo(() => {
     return appList.filter((a) => {
-      const status = String(a.status || '').toLowerCase();
+      const status = String(a.timeline_status || '').toLowerCase();
       const type = String(a.type || '').trim();
       if (statusFilter && status !== statusFilter) return false;
       if (typeFilter && type !== typeFilter) return false;
@@ -116,7 +111,8 @@ export default function Applications() {
         a.reference_number,
         a.title,
         a.type,
-        a.status,
+        a.timeline_status,
+        a.assigned_stage,
       ]
         .filter(Boolean)
         .join(' ')
@@ -124,17 +120,14 @@ export default function Applications() {
       return haystack.includes(queryText);
     });
   }, [appList, statusFilter, typeFilter, queryText]);
-  const filteredPendingCount = filteredList.filter((a) => ['draft', 'submitted', 'pending', 'on_hold'].includes(String(a.status))).length;
+  const filteredPendingCount = filteredList.filter((a) => a.is_active && !a.is_completed).length;
   const showingCached = applicationsQuery.fromCache;
   const lastSyncedAt = applicationsQuery.lastSyncedAt;
   const statusChips = [
     { key: '', label: 'All' },
-    { key: 'pending', label: 'Pending' },
-    { key: 'submitted', label: 'Submitted' },
-    { key: 'approved', label: 'Approved' },
-    { key: 'on_hold', label: 'On Hold' },
-    { key: 'rejected', label: 'Rejected' },
-    { key: 'draft', label: 'Draft' },
+    { key: 'ontime', label: 'On time' },
+    { key: 'tobedelayed', label: 'At risk' },
+    { key: 'delayed', label: 'Delayed' },
   ];
 
   const openActionSheet = (application, action = 'track') => {
@@ -163,6 +156,12 @@ export default function Applications() {
     }));
     closeActionSheet();
   };
+
+  function fallbackSafeDate(value) {
+    if (!value) return null;
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -297,7 +296,7 @@ export default function Applications() {
           </FadeInView>
         ) : (
         filteredList.map((application, index) => {
-          const meta = statusMeta(application.status);
+          const meta = statusMeta(application);
           const queuedActions = queuedActionsById[application.id] || [];
           const amountText =
             formatMoney(application.amount) ||
@@ -311,7 +310,7 @@ export default function Applications() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.referenceText}>{application.reference_number || `#APP${String(application.id || index + 1).padStart(4, '0')}`}</Text>
                     <Text style={styles.appTitle} numberOfLines={1}>{application.title || 'Regulatory application'}</Text>
-                    <Text style={styles.nextStepText} numberOfLines={1}>{recommendationForStatus(application.status)}</Text>
+                    <Text style={styles.nextStepText} numberOfLines={1}>{recommendationForStatus(application)}</Text>
                   </View>
                   <Text style={[styles.statusPill, { backgroundColor: meta.tone, color: meta.text }]}>{meta.label}</Text>
                 </View>
@@ -325,7 +324,7 @@ export default function Applications() {
                     <View style={styles.invoiceDivider} />
                     <View>
                       <Text style={styles.invoiceLabel}>Stage</Text>
-                      <Text style={styles.invoiceValueSmall}>{meta.label}</Text>
+                      <Text style={styles.invoiceValueSmall} numberOfLines={1}>{application.assigned_stage || '—'}</Text>
                     </View>
                     {amountText ? (
                       <>
@@ -349,15 +348,15 @@ export default function Applications() {
 
                 <View style={styles.metaRows}>
                   <View style={styles.metaRow}>
-                    <Text style={styles.metaLabel}>Submitted</Text>
+                    <Text style={styles.metaLabel}>Assigned</Text>
                     <Text style={styles.metaValue}>
-                      {application.submitted_at ? new Date(application.submitted_at).toLocaleDateString() : '—'}
+                      {fallbackSafeDate(application.updated_at)?.toLocaleDateString() || '—'}
                     </Text>
                   </View>
                   <View style={styles.metaRow}>
-                    <Text style={styles.metaLabel}>Last update</Text>
+                    <Text style={styles.metaLabel}>Remaining</Text>
                     <Text style={styles.metaValue}>
-                      {application.updated_at ? new Date(application.updated_at).toLocaleDateString() : '—'}
+                      {application.days_remaining == null ? '—' : `${application.days_remaining} day(s)`}
                     </Text>
                   </View>
                 </View>

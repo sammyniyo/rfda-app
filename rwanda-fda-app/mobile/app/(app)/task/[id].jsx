@@ -12,41 +12,7 @@ import { colors, spacing, radius, shadow } from '../../../constants/theme';
 import FadeInView from '../../../components/FadeInView';
 import PressableScale from '../../../components/PressableScale';
 
-// Temporary sample tasks as a fallback while the real task API is not yet available.
-const FALLBACK_TASKS = [
-  {
-    id: 1,
-    title: 'Review pharmacovigilance report',
-    description: 'Screen latest safety reports and flag any serious events that require follow-up.',
-    status: 'in_progress',
-    priority: 'high',
-    due_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    application_id: 'PV-2026-014',
-    created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    assigned_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 2,
-    title: 'Check import permit documents',
-    description: 'Verify completeness of import permit application for Griverson Trust.',
-    status: 'pending',
-    priority: 'medium',
-    due_date: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
-    application_id: 'IP-2026-089',
-    created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 3,
-    title: 'Sign-off finished product release',
-    description: 'Confirm COA and QC results before batch release to market.',
-    status: 'completed',
-    priority: 'low',
-    due_date: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-    application_id: 'PR-2026-033',
-    created_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
-    updated_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-];
+// Task detail uses live Monitoring Tool APIs (no sample fallbacks).
 
 function parseDate(v) {
   if (!v) return null;
@@ -132,25 +98,64 @@ function taskProgress(task) {
 
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams();
-  const { token } = useAuth();
+  const { token, user, perfType } = useAuth();
 
   const taskId = String(id || '').trim();
   const taskQuery = useQuery(
     async () => {
       if (!taskId) throw new Error('Missing task id');
       try {
-        const res = await fetch(`${api.tasks}/${taskId}`, { headers: getAuthHeaders(() => token) });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || 'Failed to load task');
-        return data;
+        const staffId = user?.staff_id ?? user?.id;
+        if (!staffId) throw new Error('Missing staff id');
+        const res = await fetch(api.performance(staffId, perfType, 'all'), { headers: getAuthHeaders(() => token) });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok || payload?.success === false) throw new Error(payload?.message || 'Failed to load task');
+        const rawTasks = payload?.data?.tasks;
+        const list = Array.isArray(rawTasks) ? rawTasks : [];
+        const normalized = list.map((t, index) => {
+          const rawStatus = String(t.status ?? t.task_status ?? '').toLowerCase();
+          const normalizedStatus = t.is_completed
+            ? 'completed'
+            : rawStatus === 'pending'
+              ? 'pending'
+              : rawStatus === 'in_progress'
+                ? 'in_progress'
+                : rawStatus
+                  ? 'in_progress'
+                  : t.is_active
+                    ? 'in_progress'
+                    : 'pending';
+
+          const rawPriority = String(t.priority ?? t.task_priority ?? '').toLowerCase();
+          const normalizedPriority = rawPriority === 'urgent' ? 'high' : rawPriority || null;
+
+          return {
+            id: t.task_id ?? t.id ?? index + 1,
+            title: t.title ?? t.task_title ?? t.name ?? 'Task',
+            description: t.description ?? t.task_description ?? t.details ?? '',
+            status: normalizedStatus,
+            priority: normalizedPriority,
+            due_date: t.due_date ?? t.deadline ?? t.dueAt ?? null,
+            application_id: t.application_id ?? t.tracking_no ?? t.app_id ?? null,
+            created_at: t.created_at ?? t.createdAt ?? null,
+            assigned_at: t.assigned_at ?? t.assignedAt ?? null,
+            updated_at: t.updated_at ?? t.updatedAt ?? null,
+            completed_at: t.completed_at ?? null,
+            timeline_status: t.timeline_status ?? null,
+            days_allowed: t.days_allowed ?? null,
+            days_taken: t.days_taken ?? null,
+            days_remaining: t.days_remaining ?? null,
+          };
+        });
+        const wanted = normalized.find((t) => String(t.id) === String(taskId));
+        if (!wanted) throw new Error('Task not found');
+        return wanted;
       } catch {
-        // While backend is not ready, fall back to a local sample task so UI can still show progress.
-        const numericId = Number(taskId);
-        return FALLBACK_TASKS.find((t) => t.id === numericId) || FALLBACK_TASKS[0];
+        throw new Error('Failed to load task');
       }
     },
-    [token, taskId],
-    { cacheKey: taskId ? `task_detail_${taskId}_${token}` : undefined }
+    [token, taskId, user?.id, user?.staff_id],
+    { cacheKey: taskId ? `task_detail_${taskId}_${token}_${user?.staff_id ?? user?.id ?? 'no_staff'}` : undefined }
   );
 
   const { data: task, loading, error, fromCache, lastSyncedAt } = taskQuery;

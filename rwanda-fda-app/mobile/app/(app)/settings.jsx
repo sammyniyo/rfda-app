@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { colors, spacing, radius, shadow } from '../../constants/theme';
+import { useAuth } from '../../context/AuthContext';
 import FadeInView from '../../components/FadeInView';
 import PressableScale from '../../components/PressableScale';
 
 export default function Settings() {
+  const { perfType, setPerfType } = useAuth();
   const [taskUpdates, setTaskUpdates] = useState(true);
   const [appUpdates, setAppUpdates] = useState(true);
   const [meetingReminders, setMeetingReminders] = useState(true);
@@ -35,6 +37,29 @@ export default function Settings() {
         </FadeInView>
 
         <FadeInView delay={80} translateY={10}>
+          <View style={styles.panel}>
+            <Text style={styles.panelTitle}>Performance data</Text>
+            <Text style={styles.panelSub}>
+              Select the API type used for your unit (example: <Text style={{ fontWeight: '800' }}>hmdr-med</Text>).
+            </Text>
+            <View style={styles.typeRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.toggleLabel}>Application type code</Text>
+                <Text style={styles.toggleSub}>Used in `performance_api.php?type=...`</Text>
+              </View>
+              <TextInput
+                value={perfType}
+                onChangeText={setPerfType}
+                autoCapitalize="none"
+                style={styles.typeInput}
+                placeholder="e.g. hmdr-med"
+                placeholderTextColor={colors.textSubtle}
+              />
+            </View>
+          </View>
+        </FadeInView>
+
+        <FadeInView delay={110} translateY={10}>
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>Notifications</Text>
             <Text style={styles.panelSub}>These are local preferences. API integration will come later.</Text>
@@ -135,6 +160,27 @@ const styles = StyleSheet.create({
   toggleTextBlock: { flex: 1 },
   toggleLabel: { color: colors.text, fontSize: 13, fontWeight: '700' },
   toggleSub: { color: colors.textSubtle, fontSize: 11.5, marginTop: 2 },
+  typeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  typeInput: {
+    minWidth: 120,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.cardSoft,
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
   comingSoonPill: {
     color: colors.fdaGreen,
     backgroundColor: colors.fdaGreenSoft,

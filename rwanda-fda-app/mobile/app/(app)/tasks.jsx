@@ -13,36 +13,7 @@ import FadeInView from '../../components/FadeInView';
 import PressableScale from '../../components/PressableScale';
 import { TasksSkeleton } from '../../components/SkeletonLoader';
 
-// Temporary sample tasks so UI looks complete while real API is built.
-const FALLBACK_TASKS = [
-  {
-    id: 1,
-    title: 'Review pharmacovigilance report',
-    description: 'Screen latest safety reports and flag any serious events that require follow-up.',
-    status: 'in_progress',
-    priority: 'high',
-    due_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    application_id: 'PV-2026-014',
-  },
-  {
-    id: 2,
-    title: 'Check import permit documents',
-    description: 'Verify completeness of import permit application for Griverson Trust.',
-    status: 'pending',
-    priority: 'medium',
-    due_date: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
-    application_id: 'IP-2026-089',
-  },
-  {
-    id: 3,
-    title: 'Sign-off finished product release',
-    description: 'Confirm COA and QC results before batch release to market.',
-    status: 'completed',
-    priority: 'low',
-    due_date: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-    application_id: 'PR-2026-033',
-  },
-];
+// Tasks screen uses live Monitoring Tool APIs (no sample fallbacks).
 
 const STATUS_FILTERS = [
   { key: '', label: 'All' },
@@ -111,7 +82,7 @@ function TrackRow({ label, value, total, color, bg }) {
 }
 
 export default function Tasks() {
-  const { token } = useAuth();
+  const { token, user, perfType } = useAuth();
   const getToken = () => token;
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -120,16 +91,53 @@ export default function Tasks() {
   const tasksQuery = useQuery(
     async () => {
       try {
-        const res = await fetch(api.tasks, { headers: getAuthHeaders(getToken) });
-        if (!res.ok) throw new Error('Failed to load tasks');
-        return await res.json();
+        const staffId = user?.staff_id ?? user?.id;
+        if (!staffId) throw new Error('Missing staff id');
+        const res = await fetch(api.performance(staffId, perfType, 'all'), { headers: getAuthHeaders(getToken) });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok || payload?.success === false) throw new Error(payload?.message || 'Failed to load tasks');
+        const rawTasks = payload?.data?.tasks;
+        const list = Array.isArray(rawTasks) ? rawTasks : [];
+        return list.map((t, index) => {
+          const rawStatus = String(t.status ?? t.task_status ?? '').toLowerCase();
+          const normalizedStatus = t.is_completed
+            ? 'completed'
+            : rawStatus === 'pending'
+              ? 'pending'
+              : rawStatus === 'in_progress'
+                ? 'in_progress'
+                : rawStatus
+                  ? 'in_progress' // e.g. "review"
+                  : t.is_active
+                    ? 'in_progress'
+                    : 'pending';
+
+          const rawPriority = String(t.priority ?? t.task_priority ?? '').toLowerCase();
+          const normalizedPriority = rawPriority === 'urgent' ? 'high' : rawPriority || null;
+
+          return {
+            id: t.task_id ?? t.id ?? index + 1,
+            title: t.title ?? t.task_title ?? t.name ?? 'Task',
+            description: t.description ?? t.task_description ?? t.details ?? '',
+            status: normalizedStatus,
+            priority: normalizedPriority,
+            due_date: t.due_date ?? t.deadline ?? t.dueAt ?? null,
+            application_id: t.application_id ?? t.tracking_no ?? t.app_id ?? null,
+            created_at: t.created_at ?? t.createdAt ?? null,
+            assigned_at: t.assigned_at ?? t.assignedAt ?? null,
+            updated_at: t.updated_at ?? t.updatedAt ?? null,
+            timeline_status: t.timeline_status ?? null,
+            days_allowed: t.days_allowed ?? null,
+            days_taken: t.days_taken ?? null,
+            days_remaining: t.days_remaining ?? null,
+          };
+        });
       } catch {
-        // While backend is not ready, fall back to local sample data.
-        return FALLBACK_TASKS;
+        return [];
       }
     },
-    [token],
-    { cacheKey: `tasks_${token}` }
+    [token, user?.id, user?.staff_id],
+    { cacheKey: `tasks_${token}_${user?.staff_id ?? user?.id ?? 'no_staff'}` }
   );
   const { data: tasks = [], loading, error } = tasksQuery;
 

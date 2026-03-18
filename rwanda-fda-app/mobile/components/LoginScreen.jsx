@@ -72,6 +72,8 @@ export default function LoginScreen() {
       // Build a rich user object from the Monitoring Tool response
       const baseUser = {
         id: data.user?.user_id ?? data.staff?.staff_id,
+        // Always keep staff_id separately so staff-scoped endpoints work reliably
+        staff_id: data.staff?.staff_id ?? null,
         email: data.user?.user_email || data.staff?.staff_email || normalizedEmail,
         access: data.user?.user_access ?? null,
         roleId: data.user?.role_id ?? null,
