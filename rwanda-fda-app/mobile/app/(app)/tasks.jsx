@@ -6,12 +6,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useQuery } from '../../hooks/useQuery';
 import { useAuth } from '../../context/AuthContext';
+import { useThemeMode } from '../../context/ThemeContext';
 import { colors, spacing, radius, shadow } from '../../constants/theme';
-import { getAuthHeaders } from '../../lib/api';
-import { api } from '../../constants/api';
+import { extractPerformanceTasks, fetchMonitoringPerformance } from '../../lib/monitoringPerformance';
+import { getMonitoringStaffId } from '../../lib/staffSession';
 import FadeInView from '../../components/FadeInView';
 import PressableScale from '../../components/PressableScale';
 import { TasksSkeleton } from '../../components/SkeletonLoader';
+import FriendlyErrorBanner from '../../components/FriendlyErrorBanner';
 
 // Tasks screen uses live Monitoring Tool APIs (no sample fallbacks).
 
@@ -53,93 +55,58 @@ function progressBuckets(tasks) {
   return result;
 }
 
-function executionScore({ total, done, late, dueSoon, active }) {
-  if (!total) return 0;
-  const doneScore = (done / total) * 70;
-  const activeScore = Math.min(active / total, 0.4) * 15;
-  const urgencyPenalty = (late / total) * 25 + (dueSoon / total) * 10;
-  return Math.max(0, Math.min(100, Math.round(doneScore + activeScore + 15 - urgencyPenalty)));
-}
-
-function ratioPart(value, total) {
-  if (!total) return 0;
-  return Math.round((value / total) * 100);
-}
-
-function TrackRow({ label, value, total, color, bg }) {
-  const pct = ratioPart(value, total);
-  return (
-    <View style={styles.trackRow}>
-      <View style={styles.trackRowTop}>
-        <Text style={styles.trackLabel}>{label}</Text>
-        <Text style={styles.trackValue}>{value} <Text style={styles.trackTotal}>({pct}%)</Text></Text>
-      </View>
-      <View style={[styles.trackBase, { backgroundColor: bg }]}>
-        <View style={[styles.trackFill, { width: `${Math.max(pct, value > 0 ? 8 : 0)}%`, backgroundColor: color }]} />
-      </View>
-    </View>
-  );
-}
-
 export default function Tasks() {
-  const { token, user, perfType } = useAuth();
+  const { token, user } = useAuth();
+  const { isDark } = useThemeMode();
   const getToken = () => token;
+  const staffId = getMonitoringStaffId(user);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
   const tasksQuery = useQuery(
     async () => {
-      try {
-        const staffId = user?.staff_id ?? user?.id;
-        if (!staffId) throw new Error('Missing staff id');
-        const res = await fetch(api.performance(staffId, perfType, 'all'), { headers: getAuthHeaders(getToken) });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok || payload?.success === false) throw new Error(payload?.message || 'Failed to load tasks');
-        const rawTasks = payload?.data?.tasks;
-        const list = Array.isArray(rawTasks) ? rawTasks : [];
-        return list.map((t, index) => {
-          const rawStatus = String(t.status ?? t.task_status ?? '').toLowerCase();
-          const normalizedStatus = t.is_completed
-            ? 'completed'
-            : rawStatus === 'pending'
-              ? 'pending'
-              : rawStatus === 'in_progress'
-                ? 'in_progress'
-                : rawStatus
-                  ? 'in_progress' // e.g. "review"
-                  : t.is_active
-                    ? 'in_progress'
-                    : 'pending';
+      const { payload } = await fetchMonitoringPerformance({ staffId, token, getToken });
+      const list = extractPerformanceTasks(payload);
+      return list.map((t, index) => {
+        const rawStatus = String(t.status ?? t.task_status ?? '').toLowerCase();
+        const normalizedStatus = t.is_completed
+          ? 'completed'
+          : rawStatus === 'pending'
+            ? 'pending'
+            : rawStatus === 'in_progress'
+              ? 'in_progress'
+              : rawStatus
+                ? 'in_progress' // e.g. "review"
+                : t.is_active
+                  ? 'in_progress'
+                  : 'pending';
 
-          const rawPriority = String(t.priority ?? t.task_priority ?? '').toLowerCase();
-          const normalizedPriority = rawPriority === 'urgent' ? 'high' : rawPriority || null;
+        const rawPriority = String(t.priority ?? t.task_priority ?? '').toLowerCase();
+        const normalizedPriority = rawPriority === 'urgent' ? 'high' : rawPriority || null;
 
-          return {
-            id: t.task_id ?? t.id ?? index + 1,
-            title: t.title ?? t.task_title ?? t.name ?? 'Task',
-            description: t.description ?? t.task_description ?? t.details ?? '',
-            status: normalizedStatus,
-            priority: normalizedPriority,
-            due_date: t.due_date ?? t.deadline ?? t.dueAt ?? null,
-            application_id: t.application_id ?? t.tracking_no ?? t.app_id ?? null,
-            created_at: t.created_at ?? t.createdAt ?? null,
-            assigned_at: t.assigned_at ?? t.assignedAt ?? null,
-            updated_at: t.updated_at ?? t.updatedAt ?? null,
-            timeline_status: t.timeline_status ?? null,
-            days_allowed: t.days_allowed ?? null,
-            days_taken: t.days_taken ?? null,
-            days_remaining: t.days_remaining ?? null,
-          };
-        });
-      } catch {
-        return [];
-      }
+        return {
+          id: t.task_id ?? t.id ?? index + 1,
+          title: t.title ?? t.task_title ?? t.name ?? 'Task',
+          description: t.description ?? t.task_description ?? t.details ?? '',
+          status: normalizedStatus,
+          priority: normalizedPriority,
+          due_date: t.due_date ?? t.deadline ?? t.dueAt ?? null,
+          application_id: t.application_id ?? t.tracking_no ?? t.app_id ?? null,
+          created_at: t.created_at ?? t.createdAt ?? null,
+          assigned_at: t.assigned_at ?? t.assignedAt ?? null,
+          updated_at: t.updated_at ?? t.updatedAt ?? null,
+          timeline_status: t.timeline_status ?? null,
+          days_allowed: t.days_allowed ?? null,
+          days_taken: t.days_taken ?? null,
+          days_remaining: t.days_remaining ?? null,
+        };
+      });
     },
-    [token, user?.id, user?.staff_id],
-    { cacheKey: `tasks_${token}_${user?.staff_id ?? user?.id ?? 'no_staff'}` }
+    [token, staffId]
+    // No SecureStore cache: same payload size issue as performance API (see dashboard).
   );
-  const { data: tasks = [], loading, error } = tasksQuery;
+  const { data: tasks = [], loading, errorInfo } = tasksQuery;
 
   const taskList = Array.isArray(tasks) ? tasks : [];
 
@@ -156,7 +123,6 @@ export default function Tasks() {
   }, [taskList, statusFilter, search]);
 
   const metrics = useMemo(() => progressBuckets(filtered), [filtered]);
-  const score = useMemo(() => executionScore(metrics), [metrics]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -167,26 +133,25 @@ export default function Tasks() {
     }
   };
 
-  if (loading) return <TasksSkeleton />;
+  if (loading && taskList.length === 0 && !errorInfo) return <TasksSkeleton />;
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, isDark && styles.safeAreaDark]} edges={['top', 'left', 'right']}>
       <ScrollView
-        style={styles.container}
+        style={[styles.container, isDark && styles.containerDark]}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.fdaGreen} />}
       >
+      {errorInfo ? (
+        <FriendlyErrorBanner info={errorInfo} onRetry={handleRefresh} isDark={isDark} />
+      ) : null}
       <FadeInView delay={0} translateY={12}>
         <LinearGradient colors={['#ffffff', '#f8fbff', '#effaf4']} style={styles.heroCard}>
           <View style={styles.heroTop}>
             <View>
               <Text style={styles.heroTitle}>My tasks</Text>
               <Text style={styles.heroSub}>See what needs your attention today.</Text>
-            </View>
-            <View style={styles.scoreBubble}>
-              <Text style={styles.scoreValue}>{score}</Text>
-              <Text style={styles.scoreLabel}>Score</Text>
             </View>
           </View>
 
@@ -224,19 +189,6 @@ export default function Tasks() {
           </FadeInView>
         ))}
       </ScrollView>
-
-      <FadeInView delay={220} translateY={10}>
-        <View style={styles.measureCard}>
-          <View style={styles.measureHeader}>
-            <Text style={styles.measureTitle}>Execution Measure</Text>
-            <Text style={styles.measureSub}>{metrics.total ? 'Calculated from completion + urgency' : 'No tasks selected'}</Text>
-          </View>
-          <TrackRow label="Completed" value={metrics.done} total={metrics.total} color={colors.success} bg="#eafaf4" />
-          <TrackRow label="In progress" value={metrics.active} total={metrics.total} color={colors.fdaBlue} bg="#eaf1ff" />
-          <TrackRow label="Due soon (72h)" value={metrics.dueSoon} total={metrics.total} color={colors.warning} bg="#fff6ea" />
-          <TrackRow label="Late" value={metrics.late} total={metrics.total} color={colors.danger} bg="#fdeeee" />
-        </View>
-      </FadeInView>
 
       <FadeInView delay={300} translateY={10}>
         <View style={styles.listCard}>
@@ -302,7 +254,9 @@ export default function Tasks() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
+  safeAreaDark: { backgroundColor: '#0b1220' },
   container: { flex: 1, backgroundColor: colors.background },
+  containerDark: { backgroundColor: '#0b1220' },
   content: { padding: spacing.md, paddingBottom: 104, gap: spacing.md },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background },
   stateText: { color: colors.textMuted },

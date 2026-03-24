@@ -1,13 +1,14 @@
-import { View, Text, TextInput, StyleSheet, ActivityIndicator, Alert, ScrollView } from 'react-native';
+import { View, Text, TextInput, StyleSheet, ActivityIndicator, Alert, ScrollView, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Image } from 'react-native';
 import { colors } from '../constants/theme';
-import { api } from '../constants/api';
 import { errors as msg } from '../lib/messages';
 import PressableScale from '../components/PressableScale';
 import FadeInView from '../components/FadeInView';
+
+const RESET_PASSWORD_URL = 'https://rwandafda.gov.rw/monitoring-tool/forgot_password.php';
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
@@ -22,16 +23,12 @@ export default function ForgotPassword() {
 
     setLoading(true);
     try {
-      const res = await fetch(api.forgotPassword, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        Alert.alert('Reset password', data.error || msg.forgotPassword.requestFailed, [{ text: 'Try again' }]);
+      const canOpen = await Linking.canOpenURL(RESET_PASSWORD_URL).catch(() => false);
+      if (!canOpen) {
+        Alert.alert('Reset password', 'Unable to open reset page. Please try again later.', [{ text: 'OK' }]);
         return;
       }
+      await Linking.openURL(RESET_PASSWORD_URL);
       setSuccess(true);
     } catch (err) {
       Alert.alert('Connection issue', msg.forgotPassword.connection, [{ text: 'OK' }]);
@@ -49,10 +46,10 @@ export default function ForgotPassword() {
               <Image source={require('../assets/RwandaFDA.png')} style={styles.logo} resizeMode="contain" />
               <Text style={styles.title}>Check your email</Text>
               <Text style={styles.subtext}>
-                If an account exists with that email, you will receive a password reset link shortly.
+                You will continue on the official Monitoring Tool reset page.
               </Text>
               <Text style={styles.subtextSmall}>
-                In development, the reset link may appear in the server console.
+                A reset link will be sent to your email if the account exists.
               </Text>
               <PressableScale style={styles.ctaButton} onPress={() => router.back()}>
                 <Text style={styles.ctaButtonText}>Back to sign in</Text>

@@ -5,15 +5,21 @@ import * as Notifications from 'expo-notifications';
 
 // Skip in Expo Go (push removed in SDK 53) to avoid HostFunction errors
 const isExpoGo = Constants.appOwnership === 'expo';
-if (!isExpoGo) {
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldShowAlert: true,
-    }),
+
+/** Must match channelId in PushNotificationsProvider when scheduling local alerts */
+export const ANDROID_ALERT_CHANNEL_ID = 'rwanda-fda-alerts';
+
+export async function ensureAndroidAlertChannelAsync() {
+  if (isExpoGo || Platform.OS !== 'android') return;
+  await Notifications.setNotificationChannelAsync(ANDROID_ALERT_CHANNEL_ID, {
+    name: 'Rwanda FDA alerts',
+    description: 'Task and application updates',
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#0f5e47',
+    sound: 'default',
+    enableVibrate: true,
+    showBadge: true,
   });
 }
 
@@ -22,14 +28,7 @@ export async function registerForPushNotificationsAsync() {
     return null;
   }
 
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'Rwanda FDA',
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#0d5c2e',
-    });
-  }
+  await ensureAndroidAlertChannelAsync();
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
   let finalStatus = existingStatus;

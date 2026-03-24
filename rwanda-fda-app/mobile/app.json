@@ -39,7 +39,8 @@
         {
           "faceIDPermission": "Rwanda FDA uses Face ID to securely sign you in."
         }
-      ]
+      ],
+      "expo-asset"
     ]
   }
 }

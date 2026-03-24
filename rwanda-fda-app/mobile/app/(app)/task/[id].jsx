@@ -6,8 +6,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useAuth } from '../../../context/AuthContext';
 import { useQuery } from '../../../hooks/useQuery';
-import { getAuthHeaders } from '../../../lib/api';
-import { api } from '../../../constants/api';
+import { extractPerformanceTasks, fetchMonitoringPerformance } from '../../../lib/monitoringPerformance';
+import { getMonitoringStaffId } from '../../../lib/staffSession';
 import { colors, spacing, radius, shadow } from '../../../constants/theme';
 import FadeInView from '../../../components/FadeInView';
 import PressableScale from '../../../components/PressableScale';
@@ -98,20 +98,21 @@ function taskProgress(task) {
 
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams();
-  const { token, user, perfType } = useAuth();
+  const { token, user } = useAuth();
 
   const taskId = String(id || '').trim();
+  const staffId = getMonitoringStaffId(user);
   const taskQuery = useQuery(
     async () => {
       if (!taskId) throw new Error('Missing task id');
       try {
-        const staffId = user?.staff_id ?? user?.id;
         if (!staffId) throw new Error('Missing staff id');
-        const res = await fetch(api.performance(staffId, perfType, 'all'), { headers: getAuthHeaders(() => token) });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok || payload?.success === false) throw new Error(payload?.message || 'Failed to load task');
-        const rawTasks = payload?.data?.tasks;
-        const list = Array.isArray(rawTasks) ? rawTasks : [];
+        const { payload } = await fetchMonitoringPerformance({
+          staffId,
+          token,
+          getToken: () => token,
+        });
+        const list = extractPerformanceTasks(payload);
         const normalized = list.map((t, index) => {
           const rawStatus = String(t.status ?? t.task_status ?? '').toLowerCase();
           const normalizedStatus = t.is_completed
@@ -154,8 +155,8 @@ export default function TaskDetailScreen() {
         throw new Error('Failed to load task');
       }
     },
-    [token, taskId, user?.id, user?.staff_id],
-    { cacheKey: taskId ? `task_detail_${taskId}_${token}_${user?.staff_id ?? user?.id ?? 'no_staff'}` : undefined }
+    [token, taskId, staffId]
+    // No SecureStore cache: parent performance payload is too large for typical SecureStore limits.
   );
 
   const { data: task, loading, error, fromCache, lastSyncedAt } = taskQuery;

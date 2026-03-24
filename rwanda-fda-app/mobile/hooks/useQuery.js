@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { readCachedJson, writeCachedJson } from '../lib/cache';
+import { friendlyErrorInfo } from '../lib/friendlyErrors';
 
 export function useQuery(fn, deps = [], options = {}) {
   const { cacheKey } = options;
@@ -7,6 +8,7 @@ export function useQuery(fn, deps = [], options = {}) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [errorInfo, setErrorInfo] = useState(null);
   const [fromCache, setFromCache] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState(null);
   const hasMountedRef = useRef(false);
@@ -16,19 +18,25 @@ export function useQuery(fn, deps = [], options = {}) {
     const run = async (mode = 'initial') => {
       if (mode === 'refresh') setRefreshing(true);
       else setLoading(true);
-      if (mode !== 'cache') setError(null);
+      if (mode !== 'cache') {
+        setError(null);
+        setErrorInfo(null);
+      }
 
       try {
         const result = await fn();
         if (cancelled) return;
         setData(result);
+        setErrorInfo(null);
         setFromCache(false);
         const syncedAt = new Date().toISOString();
         setLastSyncedAt(syncedAt);
         if (cacheKey) await writeCachedJson(cacheKey, result);
       } catch (err) {
         if (!cancelled) {
-          setError(err?.message || "Couldn't load. Pull down to try again.");
+          const info = friendlyErrorInfo(err);
+          setErrorInfo(info);
+          setError(info.message);
         }
       } finally {
         if (!cancelled) {
@@ -60,21 +68,25 @@ export function useQuery(fn, deps = [], options = {}) {
   const refetch = async () => {
     setRefreshing(true);
     setError(null);
+    setErrorInfo(null);
     try {
       const result = await fn();
       setData(result);
+      setErrorInfo(null);
       setFromCache(false);
       const syncedAt = new Date().toISOString();
       setLastSyncedAt(syncedAt);
       if (cacheKey) await writeCachedJson(cacheKey, result);
       return result;
     } catch (err) {
-      setError(err?.message || "Couldn't load. Pull down to try again.");
+      const info = friendlyErrorInfo(err);
+      setErrorInfo(info);
+      setError(info.message);
       throw err;
     } finally {
       setRefreshing(false);
     }
   };
 
-  return { data, loading, refreshing, error, refetch, fromCache, lastSyncedAt };
+  return { data, loading, refreshing, error, errorInfo, refetch, fromCache, lastSyncedAt };
 }

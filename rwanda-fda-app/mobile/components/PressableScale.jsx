@@ -9,7 +9,48 @@ import Animated, {
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-export function PressableScale({ children, style, onPress, disabled, scaleDown = 0.98, haptic = true }) {
+function triggerHaptic(type) {
+  if (Platform.OS === 'web') return;
+  try {
+    if (type === 'medium') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      return;
+    }
+    if (type === 'heavy') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      return;
+    }
+    if (type === 'success') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      return;
+    }
+    if (type === 'warning') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
+    if (type === 'error') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+    if (type === 'selection') {
+      Haptics.selectionAsync();
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  } catch {
+    // Ignore haptics failures on unsupported devices.
+  }
+}
+
+export function PressableScale({
+  children,
+  style,
+  onPress,
+  disabled,
+  scaleDown = 0.98,
+  haptic = true,
+  hapticType = 'light',
+}) {
   const scale = useSharedValue(1);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -25,7 +66,7 @@ export function PressableScale({ children, style, onPress, disabled, scaleDown =
 
   const handlePress = (e) => {
     if (haptic && !disabled && Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      triggerHaptic(hapticType);
     }
     onPress?.(e);
   };

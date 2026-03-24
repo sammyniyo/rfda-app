@@ -1,9 +1,11 @@
+import React from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
 import { AuthProvider } from '../context/AuthContext';
+import { ThemeProvider, useThemeMode } from '../context/ThemeContext';
 
-// Avoid loading expo-notifications in Expo Go (HostFunction crash)
 const PushNotificationsProvider =
   Constants.appOwnership === 'expo'
     ? ({ children }) => children
@@ -21,11 +23,20 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <PushNotificationsProvider>
-        <StatusBar style="dark" />
-        <RootNavigator />
-      </PushNotificationsProvider>
-    </AuthProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <AuthProvider>
+          <PushNotificationsProvider>
+            <ThemeAwareStatus />
+            <RootNavigator />
+          </PushNotificationsProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
+}
+
+function ThemeAwareStatus() {
+  const { isDark } = useThemeMode();
+  return <StatusBar style={isDark ? 'light' : 'dark'} />;
 }

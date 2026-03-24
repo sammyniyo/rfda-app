@@ -1,167 +1,97 @@
 import { useMemo, useState } from 'react';
-import { Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '../../hooks/useQuery';
 import { useAuth } from '../../context/AuthContext';
+import { useThemeMode } from '../../context/ThemeContext';
 import { colors, spacing, radius, shadow } from '../../constants/theme';
-import { getAuthHeaders } from '../../lib/api';
-import { api } from '../../constants/api';
+import { extractPerformanceApplications, fetchMonitoringPerformance } from '../../lib/monitoringPerformance';
+import { getMonitoringStaffId } from '../../lib/staffSession';
 import FadeInView from '../../components/FadeInView';
 import PressableScale from '../../components/PressableScale';
 import { ListSkeleton } from '../../components/SkeletonLoader';
+import FriendlyErrorBanner from '../../components/FriendlyErrorBanner';
 
-// Applications screen uses live Monitoring Tool APIs (no sample fallbacks).
-
-function statusMeta({ timeline_status, is_active, is_completed, days_remaining }) {
-  const timeline = String(timeline_status || '').toLowerCase();
-  const remaining = Number(days_remaining);
-  const remainingKnown = !Number.isNaN(remaining) && Number.isFinite(remaining);
-
-  if (is_completed) {
-    if (timeline === 'delayed') return { label: 'Completed (Delayed)', tone: '#fdecec', text: colors.danger, progress: 100 };
-    return { label: 'Completed', tone: '#e7faf0', text: colors.success, progress: 100 };
+function statusMeta(app) {
+  const timeline = String(app.timeline_status || '').toLowerCase();
+  if (app.is_completed) {
+    return { label: 'Completed', fg: colors.success, bg: 'completed' };
   }
-
-  if (timeline === 'delayed') return { label: 'Delayed', tone: '#fdecec', text: colors.danger, progress: 70 };
-  if (timeline === 'tobedelayed') return { label: 'At risk', tone: '#fff6ea', text: colors.warning, progress: 55 };
-  if (timeline === 'ontime') return { label: is_active ? 'On track' : 'On time', tone: '#e7faf0', text: colors.success, progress: 45 };
-
-  if (remainingKnown && remaining <= 0) return { label: 'Due now', tone: '#fff6ea', text: colors.warning, progress: 55 };
-  return { label: is_active ? 'Active' : 'Assigned', tone: '#e8f0ff', text: colors.fdaBlue, progress: 40 };
+  if (timeline === 'delayed') return { label: 'Delayed', fg: colors.danger, bg: 'delayed' };
+  if (timeline === 'tobedelayed') return { label: 'At risk', fg: colors.warning, bg: 'risk' };
+  if (timeline === 'ontime') return { label: 'On time', fg: colors.success, bg: 'ontime' };
+  return { label: app.is_active ? 'Active' : 'Assigned', fg: colors.fdaBlue, bg: 'active' };
 }
 
-function formatMoney(amount) {
-  const num = Number(amount);
-  if (Number.isNaN(num)) return null;
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num);
-}
-
-function recommendationForStatus({ timeline_status, is_active, is_completed }) {
-  const timeline = String(timeline_status || '').toLowerCase();
-  if (is_completed) return 'Completed — archive or follow up if needed';
-  if (timeline === 'delayed') return 'Delayed — prioritize and escalate';
-  if (timeline === 'tobedelayed') return 'At risk — act before deadline';
-  if (timeline === 'ontime') return is_active ? 'On track — continue review' : 'On time — verify next step';
-  return is_active ? 'Active — review progress' : 'Assigned — start review';
-}
+const FILTER_CHIPS = [
+  { key: '', label: 'All' },
+  { key: 'active', label: 'Active' },
+  { key: 'completed', label: 'Done' },
+  { key: 'ontime', label: 'On time' },
+  { key: 'tobedelayed', label: 'At risk' },
+  { key: 'delayed', label: 'Delayed' },
+];
 
 export default function Applications() {
-  const { token, user, perfType } = useAuth();
+  const { token, user } = useAuth();
+  const { isDark } = useThemeMode();
   const getToken = () => token;
-  const staffId = user?.staff_id ?? user?.id;
+  const staffId = getMonitoringStaffId(user);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [selectedApp, setSelectedApp] = useState(null);
-  const [selectedAction, setSelectedAction] = useState('track');
-  const [actionNote, setActionNote] = useState('');
-  const [queuedActionsById, setQueuedActionsById] = useState({});
+  const [filterKey, setFilterKey] = useState('');
 
   const applicationsQuery = useQuery(
     async () => {
-      try {
-        if (!staffId) throw new Error('Missing staff id');
-        const res = await fetch(api.performance(staffId, perfType, 'all'), { headers: getAuthHeaders(getToken) });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok || payload?.success === false) throw new Error(payload?.message || 'Failed to load applications');
-        const rawApps = payload?.data?.applications;
-        const list = Array.isArray(rawApps) ? rawApps : [];
+      const { payload } = await fetchMonitoringPerformance({ staffId, token, getToken });
+      const list = extractPerformanceApplications(payload);
+      const data = payload?.data != null ? payload.data : {};
 
-        // Normalize Monitoring Tool assignments to our UI shape.
-        return list.map((a) => ({
-          id: a.application_id ?? a.assignment_id,
-          reference_number: a.tracking_no,
-          title: a.applicant,
-          timeline_status: a.timeline_status || null,
-          is_active: Boolean(a.is_active),
-          is_completed: Boolean(a.is_completed),
-          type: payload?.data?.filter?.application_type_label || payload?.data?.filter?.application_type || 'Application',
-          submitted_at: a.submission_date,
-          updated_at: a.assignment_date,
-          assigned_stage: a.assigned_stage,
-          days_allowed: a.days_allowed,
-          days_taken: a.days_taken,
-          days_remaining: a.days_remaining,
-        }));
-      } catch {
-        return [];
-      }
+      return list.map((a) => ({
+        id: a.application_id ?? a.assignment_id,
+        reference_number: a.tracking_no,
+        title: a.applicant,
+        timeline_status: a.timeline_status || null,
+        is_active: Boolean(a.is_active),
+        is_completed: Boolean(a.is_completed),
+        type: data?.filter?.application_type_label || data?.filter?.application_type || 'Application',
+        submitted_at: a.submission_date,
+        updated_at: a.assignment_date,
+        assigned_stage: a.assigned_stage,
+        days_allowed: a.days_allowed,
+        days_taken: a.days_taken,
+        days_remaining: a.days_remaining,
+      }));
     },
-    [token, staffId, perfType],
-    { cacheKey: `applications_${token}_${staffId || 'no_staff'}_${perfType || 'no_type'}` }
+    [token, staffId]
+    // No SecureStore cache: full applications list exceeds typical SecureStore limits; stale empty cache showed as 0 items.
   );
-  const { data: applications = [], loading, error } = applicationsQuery;
 
+  const { data: applications = [], loading, errorInfo } = applicationsQuery;
   const appList = Array.isArray(applications) ? applications : [];
-  const typeOptions = useMemo(() => {
-    const values = [...new Set(appList.map((a) => String(a.type || '').trim()).filter(Boolean))];
-    return values.slice(0, 8);
-  }, [appList]);
+
   const queryText = search.trim().toLowerCase();
   const filteredList = useMemo(() => {
     return appList.filter((a) => {
-      const status = String(a.timeline_status || '').toLowerCase();
-      const type = String(a.type || '').trim();
-      if (statusFilter && status !== statusFilter) return false;
-      if (typeFilter && type !== typeFilter) return false;
+      const timeline = String(a.timeline_status || '').toLowerCase();
+
+      if (filterKey === 'active') {
+        if (!a.is_active || a.is_completed) return false;
+      } else if (filterKey === 'completed') {
+        if (!a.is_completed) return false;
+      } else if (filterKey === 'ontime' || filterKey === 'tobedelayed' || filterKey === 'delayed') {
+        if (timeline !== filterKey) return false;
+      }
+
       if (!queryText) return true;
-      const haystack = [
-        a.reference_number,
-        a.title,
-        a.type,
-        a.timeline_status,
-        a.assigned_stage,
-      ]
+      const haystack = [a.reference_number, a.title, a.type, a.assigned_stage, timeline]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
       return haystack.includes(queryText);
     });
-  }, [appList, statusFilter, typeFilter, queryText]);
-  const filteredPendingCount = filteredList.filter((a) => a.is_active && !a.is_completed).length;
-  const showingCached = applicationsQuery.fromCache;
-  const lastSyncedAt = applicationsQuery.lastSyncedAt;
-  const statusChips = [
-    { key: '', label: 'All' },
-    { key: 'ontime', label: 'On time' },
-    { key: 'tobedelayed', label: 'At risk' },
-    { key: 'delayed', label: 'Delayed' },
-  ];
-
-  const openActionSheet = (application, action = 'track') => {
-    setSelectedApp(application);
-    setSelectedAction(action);
-    setActionNote('');
-  };
-
-  const closeActionSheet = () => {
-    setSelectedApp(null);
-    setActionNote('');
-  };
-
-  const queueActionDraft = () => {
-    if (!selectedApp) return;
-    const appId = selectedApp.id;
-    const draft = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      action: selectedAction,
-      note: actionNote.trim() || null,
-      createdAt: new Date().toISOString(),
-    };
-    setQueuedActionsById((prev) => ({
-      ...prev,
-      [appId]: [draft, ...(prev[appId] || [])].slice(0, 5),
-    }));
-    closeActionSheet();
-  };
-
-  function fallbackSafeDate(value) {
-    if (!value) return null;
-    const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
+  }, [appList, filterKey, queryText]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -172,596 +102,244 @@ export default function Applications() {
     }
   };
 
-  if (loading) return <ListSkeleton count={6} />;
+  const pageBg = isDark ? '#0b1220' : colors.background;
+  const cardBg = isDark ? '#111827' : colors.card;
+  const borderColor = isDark ? 'rgba(148,163,184,0.2)' : colors.border;
+  const textMain = isDark ? '#f8fafc' : colors.text;
+  const textMuted = isDark ? '#94a3b8' : colors.textMuted;
+  const inputBg = isDark ? '#0f172a' : colors.card;
+  const chipInactiveBg = isDark ? '#1e293b' : colors.card;
+  const chipInactiveBorder = borderColor;
+
+  function pillColors(meta) {
+    if (meta.bg === 'delayed') return { bg: isDark ? '#3f1d24' : '#fff1f2', fg: meta.fg };
+    if (meta.bg === 'risk') return { bg: isDark ? '#3a2a12' : '#fff7ed', fg: meta.fg };
+    if (meta.bg === 'ontime' || meta.bg === 'completed') return { bg: isDark ? '#132a22' : '#ecfdf5', fg: meta.fg };
+    return { bg: isDark ? '#1a2744' : '#eff6ff', fg: meta.fg };
+  }
+
+  if (loading && appList.length === 0 && !errorInfo) {
+    return <ListSkeleton count={6} />;
+  }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: pageBg }]} edges={['top', 'left', 'right']}>
       <ScrollView
-        style={styles.container}
+        style={[styles.container, { backgroundColor: pageBg }]}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.fdaGreen} />}
       >
-      <FadeInView delay={0} translateY={12}>
-        <LinearGradient colors={['#ffffff', '#f8fbff', '#f7f7fb']} style={styles.heroCard}>
-          <View style={styles.heroRow}>
-            <View>
-              <Text style={styles.heroTitle}>Applications</Text>
-              <Text style={styles.heroSub}>Monitor staff-submitted files and approval progress.</Text>
-            </View>
-            <View style={styles.heroCountBubble}>
-              <Text style={styles.heroCountValue}>{appList.length}</Text>
-              <Text style={styles.heroCountLabel}>Total</Text>
-            </View>
-          </View>
-          <View style={styles.miniStatsRow}>
-            <View style={styles.miniStat}>
-              <Text style={styles.miniStatValue}>{filteredPendingCount}</Text>
-              <Text style={styles.miniStatLabel}>Pending review</Text>
-            </View>
-            <View style={styles.miniStat}>
-              <Text style={styles.miniStatValue}>{filteredList.length}</Text>
-              <Text style={styles.miniStatLabel}>Visible results</Text>
-            </View>
-          </View>
-          <View style={styles.miniStatsRow}>
-            <View style={styles.miniStat}>
-              <Text style={styles.miniStatValue}>{Object.values(queuedActionsById).reduce((sum, list) => sum + list.length, 0)}</Text>
-              <Text style={styles.miniStatLabel}>Draft actions</Text>
-            </View>
-            <View style={styles.miniStat}>
-              <Text style={styles.miniStatValue}>{statusFilter || typeFilter ? 'ON' : 'OFF'}</Text>
-              <Text style={styles.miniStatLabel}>Quick filters</Text>
-            </View>
-          </View>
+        {errorInfo ? (
+          <FriendlyErrorBanner info={errorInfo} onRetry={handleRefresh} isDark={isDark} />
+        ) : null}
 
-          <View style={styles.searchWrap}>
-            <Text style={styles.searchIcon}>⌕</Text>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search by ref, title, type..."
-              placeholderTextColor={colors.textSubtle}
-              value={search}
-              onChangeText={setSearch}
-            />
-          </View>
+        <FadeInView delay={0} translateY={10}>
+          <View style={[styles.headerCard, { backgroundColor: cardBg, borderColor }]}>
+            <View style={styles.headerRow}>
+              <View>
+                <Text style={[styles.title, { color: textMain }]}>Applications</Text>
+                <Text style={[styles.subtitle, { color: textMuted }]}>Assignments linked to your staff ID</Text>
+              </View>
+              <View style={[styles.countBadge, { backgroundColor: isDark ? '#0f766e33' : colors.fdaGreenSoft }]}>
+                <Text style={[styles.countValue, { color: colors.fdaGreen }]}>{appList.length}</Text>
+              </View>
+            </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-            {statusChips.map((chip) => (
-              <PressableScale
-                key={`status-${chip.key || 'all'}`}
-                style={[styles.filterChip, statusFilter === chip.key && styles.filterChipActive]}
-                onPress={() => setStatusFilter(chip.key)}
-              >
-                <Text style={[styles.filterChipText, statusFilter === chip.key && styles.filterChipTextActive]}>
-                  {chip.label}
-                </Text>
-              </PressableScale>
-            ))}
-          </ScrollView>
-
-          {typeOptions.length > 0 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRowSecondary}>
-              <PressableScale
-                style={[styles.filterChipSecondary, !typeFilter && styles.filterChipSecondaryActive]}
-                onPress={() => setTypeFilter('')}
-              >
-                <Text style={[styles.filterChipSecondaryText, !typeFilter && styles.filterChipSecondaryTextActive]}>
-                  All types
-                </Text>
-              </PressableScale>
-              {typeOptions.map((type) => (
-                <PressableScale
-                  key={`type-${type}`}
-                  style={[styles.filterChipSecondary, typeFilter === type && styles.filterChipSecondaryActive]}
-                  onPress={() => setTypeFilter(type)}
-                >
-                  <Text style={[styles.filterChipSecondaryText, typeFilter === type && styles.filterChipSecondaryTextActive]}>
-                    {type}
-                  </Text>
+            <View style={[styles.searchWrap, { backgroundColor: inputBg, borderColor }]}>
+              <Ionicons name="search-outline" size={20} color={textMuted} />
+              <TextInput
+                style={[styles.searchInput, { color: textMain }]}
+                placeholder="Search reference, applicant, stage…"
+                placeholderTextColor={textMuted}
+                value={search}
+                onChangeText={setSearch}
+              />
+              {search.length > 0 ? (
+                <PressableScale onPress={() => setSearch('')} hapticType="light">
+                  <Ionicons name="close-circle" size={22} color={textMuted} />
                 </PressableScale>
-              ))}
-            </ScrollView>
-          )}
-        </LinearGradient>
-      </FadeInView>
+              ) : null}
+            </View>
 
-      {(showingCached || lastSyncedAt) && (
-        <FadeInView delay={60} translateY={8}>
-          <View style={styles.syncPill}>
-            <Text style={styles.syncPillText}>
-              {showingCached ? 'Cached list' : 'Live list'}
-              {lastSyncedAt
-                ? ` • ${new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                : ''}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
+              {FILTER_CHIPS.map((chip) => {
+                const active = filterKey === chip.key;
+                return (
+                  <PressableScale
+                    key={chip.key || 'all'}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: active ? colors.fdaGreen : chipInactiveBg,
+                        borderColor: active ? colors.fdaGreen : chipInactiveBorder,
+                      },
+                    ]}
+                    onPress={() => setFilterKey(chip.key)}
+                    hapticType="selection"
+                  >
+                    <Text style={[styles.chipText, { color: active ? '#fff' : textMuted }]}>{chip.label}</Text>
+                  </PressableScale>
+                );
+              })}
+            </ScrollView>
+
+            <Text style={[styles.resultHint, { color: textMuted }]}>
+              Showing {filteredList.length} of {appList.length}
             </Text>
           </View>
         </FadeInView>
-      )}
 
-      {appList.length === 0 ? (
-        <FadeInView delay={120} translateY={10}>
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>No applications yet</Text>
-            <Text style={styles.emptyText}>Submitted applications will appear here with progress tracking.</Text>
-          </View>
-        </FadeInView>
-      ) : (
-        filteredList.length === 0 ? (
-          <FadeInView delay={120} translateY={10}>
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No matching applications</Text>
-              <Text style={styles.emptyText}>Try changing the search text or filters.</Text>
+        {appList.length === 0 && !errorInfo ? (
+          <FadeInView delay={80} translateY={8}>
+            <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor }]}>
+              <Ionicons name="document-text-outline" size={40} color={textMuted} />
+              <Text style={[styles.emptyTitle, { color: textMain }]}>No applications yet</Text>
+              <Text style={[styles.emptyBody, { color: textMuted }]}>
+                When assignments are linked to your account, they will appear here.
+              </Text>
+            </View>
+          </FadeInView>
+        ) : filteredList.length === 0 ? (
+          <FadeInView delay={80} translateY={8}>
+            <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor }]}>
+              <Ionicons name="funnel-outline" size={36} color={textMuted} />
+              <Text style={[styles.emptyTitle, { color: textMain }]}>No matches</Text>
+              <Text style={[styles.emptyBody, { color: textMuted }]}>Try another filter or clear the search.</Text>
+              <PressableScale style={styles.clearBtn} onPress={() => { setFilterKey(''); setSearch(''); }} hapticType="light">
+                <Text style={styles.clearBtnText}>Reset filters</Text>
+              </PressableScale>
             </View>
           </FadeInView>
         ) : (
-        filteredList.map((application, index) => {
-          const meta = statusMeta(application);
-          const queuedActions = queuedActionsById[application.id] || [];
-          const amountText =
-            formatMoney(application.amount) ||
-            formatMoney(application.fee_amount) ||
-            formatMoney(application.total_amount);
+          filteredList.map((app, index) => {
+            const meta = statusMeta(app);
+            const pc = pillColors(meta);
+            const remaining =
+              app.days_remaining == null || app.days_remaining === '' ? '—' : `${app.days_remaining}d`;
 
-          return (
-            <FadeInView key={application.id ?? index} delay={120 + index * 60} translateY={10}>
-              <PressableScale style={styles.card}>
-                <View style={styles.cardTop}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.referenceText}>{application.reference_number || `#APP${String(application.id || index + 1).padStart(4, '0')}`}</Text>
-                    <Text style={styles.appTitle} numberOfLines={1}>{application.title || 'Regulatory application'}</Text>
-                    <Text style={styles.nextStepText} numberOfLines={1}>{recommendationForStatus(application)}</Text>
-                  </View>
-                  <Text style={[styles.statusPill, { backgroundColor: meta.tone, color: meta.text }]}>{meta.label}</Text>
-                </View>
-
-                <LinearGradient colors={['#f8fafc', '#ffffff']} style={styles.invoicePanel}>
-                  <View style={styles.invoiceTop}>
-                    <View>
-                      <Text style={styles.invoiceLabel}>Progress</Text>
-                      <Text style={styles.invoiceValue}>{meta.progress}%</Text>
-                    </View>
-                    <View style={styles.invoiceDivider} />
-                    <View>
-                      <Text style={styles.invoiceLabel}>Stage</Text>
-                      <Text style={styles.invoiceValueSmall} numberOfLines={1}>{application.assigned_stage || '—'}</Text>
-                    </View>
-                    {amountText ? (
-                      <>
-                        <View style={styles.invoiceDivider} />
-                        <View>
-                          <Text style={styles.invoiceLabel}>Fees</Text>
-                          <Text style={styles.invoiceValueSmall}>{amountText}</Text>
-                        </View>
-                      </>
-                    ) : null}
-                  </View>
-                  <View style={styles.progressTrack}>
-                    <LinearGradient
-                      colors={[colors.fdaGreen, colors.teal]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={[styles.progressFill, { width: `${Math.max(meta.progress, 8)}%` }]}
-                    />
-                  </View>
-                </LinearGradient>
-
-                <View style={styles.metaRows}>
-                  <View style={styles.metaRow}>
-                    <Text style={styles.metaLabel}>Assigned</Text>
-                    <Text style={styles.metaValue}>
-                      {fallbackSafeDate(application.updated_at)?.toLocaleDateString() || '—'}
-                    </Text>
-                  </View>
-                  <View style={styles.metaRow}>
-                    <Text style={styles.metaLabel}>Remaining</Text>
-                    <Text style={styles.metaValue}>
-                      {application.days_remaining == null ? '—' : `${application.days_remaining} day(s)`}
-                    </Text>
-                  </View>
-                </View>
-
-                {queuedActions.length > 0 ? (
-                  <View style={styles.queuedActionBanner}>
-                    <Text style={styles.queuedActionBannerText}>
-                      {queuedActions.length} draft action{queuedActions.length > 1 ? 's' : ''} • Latest: {queuedActions[0].action.replace('_', ' ')}
-                    </Text>
-                  </View>
-                ) : null}
-
-                <View style={styles.actionsRow}>
-                  {[
-                    { key: 'approve', label: 'Approve' },
-                    { key: 'request_update', label: 'Request Update' },
-                    { key: 'comment', label: 'Comment' },
-                    { key: 'assign', label: 'Assign' },
-                    { key: 'track', label: 'Track' },
-                  ].map((action) => (
-                    <PressableScale
-                      key={action.key}
-                      style={[
-                        styles.actionChip,
-                        action.key === 'approve' && styles.actionChipApprove,
-                        action.key === 'request_update' && styles.actionChipWarn,
-                        action.key === 'comment' && styles.actionChipNeutral,
-                      ]}
-                      onPress={() => openActionSheet(application, action.key)}
-                    >
-                      <Text
-                        style={[
-                          styles.actionChipText,
-                          action.key === 'approve' && styles.actionChipTextApprove,
-                          action.key === 'request_update' && styles.actionChipTextWarn,
-                        ]}
-                      >
-                        {action.label}
+            return (
+              <FadeInView key={app.id ?? index} delay={60 + index * 40} translateY={8}>
+                <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
+                  <View style={styles.cardTop}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <Text style={[styles.ref, { color: colors.fdaGreen }]} numberOfLines={1}>
+                        {app.reference_number || `#${app.id}`}
                       </Text>
-                    </PressableScale>
-                  ))}
-                </View>
-              </PressableScale>
-            </FadeInView>
-          );
-        }))
-      )}
-
-      <Modal
-        visible={!!selectedApp}
-        transparent
-        animationType="fade"
-        onRequestClose={closeActionSheet}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>Quick Action</Text>
-                <Text style={styles.modalRef}>
-                  {selectedApp?.reference_number || (selectedApp ? `#APP${String(selectedApp.id).padStart(4, '0')}` : '')}
-                </Text>
-              </View>
-              <PressableScale style={styles.modalClose} onPress={closeActionSheet}>
-                <Text style={styles.modalCloseText}>×</Text>
-              </PressableScale>
-            </View>
-
-            {selectedApp ? (
-              <>
-                <Text style={styles.modalAppTitle}>{selectedApp.title || 'Regulatory application'}</Text>
-                <Text style={styles.modalHint}>{recommendationForStatus(selectedApp.status)}</Text>
-
-                <View style={styles.modalActionTabs}>
-                  {[
-                    { key: 'approve', label: 'Approve' },
-                    { key: 'request_update', label: 'Update' },
-                    { key: 'comment', label: 'Comment' },
-                    { key: 'assign', label: 'Assign' },
-                    { key: 'track', label: 'Track' },
-                  ].map((action) => (
-                    <PressableScale
-                      key={action.key}
-                      style={[styles.modalActionTab, selectedAction === action.key && styles.modalActionTabActive]}
-                      onPress={() => setSelectedAction(action.key)}
-                    >
-                      <Text style={[styles.modalActionTabText, selectedAction === action.key && styles.modalActionTabTextActive]}>
-                        {action.label}
+                      <Text style={[styles.appTitle, { color: textMain }]} numberOfLines={2}>
+                        {app.title || 'Application'}
                       </Text>
-                    </PressableScale>
-                  ))}
+                    </View>
+                    <View style={[styles.statusPill, { backgroundColor: pc.bg }]}>
+                      <Text style={[styles.statusText, { color: pc.fg }]}>{meta.label}</Text>
+                    </View>
+                  </View>
+
+                  <View style={[styles.metricsRow, { borderTopColor: borderColor }]}>
+                    <View style={styles.metric}>
+                      <Text style={[styles.metricLabel, { color: textMuted }]}>Stage</Text>
+                      <Text style={[styles.metricValue, { color: textMain }]} numberOfLines={1}>
+                        {app.assigned_stage || '—'}
+                      </Text>
+                    </View>
+                    <View style={[styles.metricDivider, { backgroundColor: borderColor }]} />
+                    <View style={styles.metric}>
+                      <Text style={[styles.metricLabel, { color: textMuted }]}>Days left</Text>
+                      <Text style={[styles.metricValue, { color: textMain }]}>{remaining}</Text>
+                    </View>
+                    <View style={[styles.metricDivider, { backgroundColor: borderColor }]} />
+                    <View style={styles.metric}>
+                      <Text style={[styles.metricLabel, { color: textMuted }]}>Progress</Text>
+                      <Text style={[styles.metricValue, { color: textMain }]}>
+                        {app.days_allowed != null && app.days_taken != null
+                          ? `${app.days_taken}/${app.days_allowed}d`
+                          : '—'}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
-
-                <View style={styles.modalInfoPanel}>
-                  <Text style={styles.modalInfoTitle}>Draft action summary</Text>
-                  <Text style={styles.modalInfoText}>
-                    {selectedAction === 'approve' && 'Prepare approval decision and finalize status update.'}
-                    {selectedAction === 'request_update' && 'Request applicant corrections or missing documents.'}
-                    {selectedAction === 'comment' && 'Add an internal note for review tracking.'}
-                    {selectedAction === 'assign' && 'Assign or hand off this application to another reviewer.'}
-                    {selectedAction === 'track' && 'Track progress and add follow-up notes for the next check-in.'}
-                  </Text>
-                </View>
-
-                <TextInput
-                  style={styles.modalNoteInput}
-                  multiline
-                  placeholder="Add note / instruction (optional)"
-                  placeholderTextColor={colors.textSubtle}
-                  value={actionNote}
-                  onChangeText={setActionNote}
-                />
-
-                <View style={styles.modalButtonsRow}>
-                  <PressableScale style={styles.modalSecondaryBtn} onPress={closeActionSheet}>
-                    <Text style={styles.modalSecondaryBtnText}>Cancel</Text>
-                  </PressableScale>
-                  <PressableScale style={styles.modalPrimaryBtn} onPress={queueActionDraft}>
-                    <Text style={styles.modalPrimaryBtnText}>Save Draft Action</Text>
-                  </PressableScale>
-                </View>
-
-                <Text style={styles.modalFooterText}>
-                  UI workflow is ready. Connect backend approval endpoints next to persist these actions.
-                </Text>
-              </>
-            ) : null}
-          </View>
-        </View>
-      </Modal>
+              </FadeInView>
+            );
+          })
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.background },
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.md, paddingBottom: 104, gap: spacing.md },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background },
-  stateText: { color: colors.textMuted },
-  heroCard: {
+  safeArea: { flex: 1 },
+  container: { flex: 1 },
+  content: { padding: spacing.md, paddingBottom: 104, gap: spacing.sm },
+  headerCard: {
     borderRadius: radius.xl,
-    padding: spacing.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    padding: spacing.md,
     ...shadow.card,
   },
-  heroRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md },
-  heroTitle: { color: colors.text, fontSize: 22, fontWeight: '800' },
-  heroSub: { color: colors.textMuted, fontSize: 13, lineHeight: 18, marginTop: 4, maxWidth: 240 },
-  heroCountBubble: {
-    width: 72,
-    height: 72,
-    borderRadius: 22,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.md },
+  title: { fontSize: 22, fontWeight: '900' },
+  subtitle: { fontSize: 13, marginTop: 4, lineHeight: 18 },
+  countBadge: {
+    minWidth: 48,
+    height: 48,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroCountValue: { color: colors.text, fontSize: 22, fontWeight: '800' },
-  heroCountLabel: { color: colors.textMuted, fontSize: 11 },
-  miniStatsRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
-  miniStat: {
-    flex: 1,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.sm + 4,
-  },
-  miniStatValue: { color: colors.text, fontWeight: '800', fontSize: 17 },
-  miniStatLabel: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  countValue: { fontSize: 20, fontWeight: '900' },
   searchWrap: {
-    marginTop: spacing.md,
-    minHeight: 52,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-  },
-  searchIcon: { width: 20, textAlign: 'center', color: colors.textMuted, fontSize: 16 },
-  searchInput: { flex: 1, color: colors.text, fontSize: 14, paddingVertical: 12, marginLeft: 6 },
-  filterRow: { gap: spacing.sm, marginTop: spacing.sm },
-  filterChip: {
+    gap: 10,
+    marginTop: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
     paddingHorizontal: 12,
+    minHeight: 48,
+  },
+  searchInput: { flex: 1, fontSize: 15, paddingVertical: 10 },
+  chipsRow: { flexDirection: 'row', gap: 8, marginTop: spacing.md, paddingRight: 4 },
+  chip: {
+    paddingHorizontal: 14,
     paddingVertical: 9,
     borderRadius: radius.pill,
-    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: colors.border,
   },
-  filterChipActive: { backgroundColor: colors.fdaGreen, borderColor: colors.fdaGreen },
-  filterChipText: { color: colors.textMuted, fontSize: 12, fontWeight: '800' },
-  filterChipTextActive: { color: '#fff' },
-  filterRowSecondary: { gap: spacing.sm, marginTop: spacing.sm },
-  filterChipSecondary: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: radius.pill,
-    backgroundColor: colors.backgroundAlt,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  filterChipSecondaryActive: { backgroundColor: '#e8f0ff', borderColor: '#d7e3ff' },
-  filterChipSecondaryText: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
-  filterChipSecondaryTextActive: { color: colors.fdaBlue },
-  syncPill: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.cardSoft,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  syncPillText: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
+  chipText: { fontSize: 12.5, fontWeight: '800' },
+  resultHint: { fontSize: 12, fontWeight: '600', marginTop: spacing.sm },
   emptyCard: {
-    backgroundColor: colors.card,
     borderRadius: radius.lg,
-    padding: spacing.lg,
-    alignItems: 'center',
     borderWidth: 1,
-    borderColor: colors.border,
+    padding: spacing.xl,
+    alignItems: 'center',
+    gap: 8,
     ...shadow.soft,
   },
-  emptyTitle: { color: colors.text, fontWeight: '800', fontSize: 16, marginBottom: 4 },
-  emptyText: { color: colors.textMuted, fontSize: 13, textAlign: 'center', lineHeight: 18 },
+  emptyTitle: { fontSize: 17, fontWeight: '800' },
+  emptyBody: { fontSize: 13, textAlign: 'center', lineHeight: 19 },
+  clearBtn: { marginTop: spacing.sm, paddingVertical: 10, paddingHorizontal: 16 },
+  clearBtnText: { color: colors.fdaGreen, fontWeight: '800', fontSize: 14 },
   card: {
-    backgroundColor: colors.card,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
     padding: spacing.md,
     ...shadow.soft,
   },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm, alignItems: 'flex-start' },
-  referenceText: { color: colors.fdaBlue, fontWeight: '800', fontSize: 12, marginBottom: 4 },
-  appTitle: { color: colors.text, fontSize: 16, fontWeight: '700' },
-  nextStepText: { color: colors.textMuted, fontSize: 11, marginTop: 4 },
-  statusPill: {
-    borderRadius: radius.pill,
-    overflow: 'hidden',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    fontSize: 11,
-    fontWeight: '800',
-    textTransform: 'capitalize',
-  },
-  invoicePanel: {
-    marginTop: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.sm + 4,
-  },
-  invoiceTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
-  invoiceDivider: { width: 1, height: 28, backgroundColor: colors.border },
-  invoiceLabel: { color: colors.textSubtle, fontSize: 11, fontWeight: '600' },
-  invoiceValue: { color: colors.text, fontSize: 22, fontWeight: '800', marginTop: 2 },
-  invoiceValueSmall: { color: colors.text, fontSize: 13, fontWeight: '700', marginTop: 2 },
-  progressTrack: {
-    height: 10,
-    borderRadius: radius.pill,
-    backgroundColor: colors.backgroundAlt,
-    marginTop: spacing.sm,
-    overflow: 'hidden',
-  },
-  progressFill: { height: '100%', borderRadius: radius.pill },
-  metaRows: { marginTop: spacing.md, gap: 8 },
-  metaRow: {
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  ref: { fontSize: 12, fontWeight: '800', marginBottom: 4 },
+  appTitle: { fontSize: 16, fontWeight: '700', lineHeight: 21 },
+  statusPill: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
+  statusText: { fontSize: 11, fontWeight: '800' },
+  metricsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-    paddingVertical: 2,
-  },
-  metaLabel: { color: colors.textMuted, fontSize: 12 },
-  metaValue: { color: colors.text, fontWeight: '600', fontSize: 12 },
-  queuedActionBanner: {
-    marginTop: spacing.sm,
-    borderRadius: radius.md,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#eef7ff',
-    borderWidth: 1,
-    borderColor: '#d7e8ff',
-  },
-  queuedActionBannerText: { color: colors.fdaBlue, fontSize: 11, fontWeight: '700' },
-  actionsRow: {
+    alignItems: 'center',
     marginTop: spacing.md,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
+    paddingTop: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: spacing.sm,
   },
-  actionChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radius.pill,
-    backgroundColor: colors.backgroundAlt,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  actionChipApprove: { backgroundColor: '#e7faf0', borderColor: '#c8ebd8' },
-  actionChipWarn: { backgroundColor: '#fff6ea', borderColor: '#f5dec0' },
-  actionChipNeutral: { backgroundColor: '#eef2ff', borderColor: '#dfe5ff' },
-  actionChipText: { color: colors.text, fontWeight: '700', fontSize: 12 },
-  actionChipTextApprove: { color: colors.success },
-  actionChipTextWarn: { color: colors.warning },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.3)',
-    justifyContent: 'flex-end',
-    padding: spacing.md,
-  },
-  modalCard: {
-    backgroundColor: colors.card,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    ...shadow.card,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  modalTitle: { color: colors.text, fontWeight: '800', fontSize: 18 },
-  modalRef: { color: colors.fdaBlue, fontWeight: '700', fontSize: 12, marginTop: 2 },
-  modalClose: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.backgroundAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalCloseText: { color: colors.text, fontSize: 22, marginTop: -2 },
-  modalAppTitle: { color: colors.text, fontSize: 15, fontWeight: '800' },
-  modalHint: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 4 },
-  modalActionTabs: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
-  modalActionTab: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.backgroundAlt,
-  },
-  modalActionTabActive: { backgroundColor: colors.fdaGreen, borderColor: colors.fdaGreen },
-  modalActionTabText: { color: colors.textMuted, fontSize: 12, fontWeight: '800' },
-  modalActionTabTextActive: { color: '#fff' },
-  modalInfoPanel: {
-    marginTop: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.cardSoft,
-    padding: spacing.sm + 2,
-  },
-  modalInfoTitle: { color: colors.text, fontSize: 12, fontWeight: '800' },
-  modalInfoText: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 4 },
-  modalNoteInput: {
-    marginTop: spacing.md,
-    minHeight: 92,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: colors.text,
-    textAlignVertical: 'top',
-    fontSize: 14,
-  },
-  modalButtonsRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
-  modalSecondaryBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.backgroundAlt,
-    minHeight: 46,
-  },
-  modalSecondaryBtnText: { color: colors.text, fontWeight: '700', fontSize: 13 },
-  modalPrimaryBtn: {
-    flex: 1.4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-    backgroundColor: colors.fdaGreen,
-    minHeight: 46,
-  },
-  modalPrimaryBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
-  modalFooterText: { color: colors.textSubtle, fontSize: 11, lineHeight: 16, marginTop: spacing.sm },
+  metric: { flex: 1, alignItems: 'center' },
+  metricDivider: { width: 1, height: 28 },
+  metricLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
+  metricValue: { fontSize: 13, fontWeight: '800', marginTop: 4 },
 });

@@ -11,6 +11,7 @@ import {
   Alert,
   ScrollView,
   Pressable,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +23,92 @@ import { api } from '../constants/api';
 import { errors as msg } from '../lib/messages';
 import PressableScale from './PressableScale';
 import FadeInView from './FadeInView';
+import { hapticError, hapticSuccess } from '../lib/haptics';
+
+const RESET_PASSWORD_URL = 'https://rwandafda.gov.rw/monitoring-tool/forgot_password.php';
+
+/** @param {string} baseUrl */
+function buildLoginAttempts(baseUrl, normalizedEmail, rawPass, numericPasscode) {
+  const queryString =
+    `user_email=${encodeURIComponent(normalizedEmail)}` +
+    `&email=${encodeURIComponent(normalizedEmail)}` +
+    `&user_passcode=${encodeURIComponent(rawPass)}` +
+    `&passcode=${encodeURIComponent(rawPass)}` +
+    `&password=${encodeURIComponent(rawPass)}`;
+  const formData = new FormData();
+  formData.append('user_email', normalizedEmail);
+  formData.append('email', normalizedEmail);
+  formData.append('user_passcode', rawPass);
+  formData.append('passcode', rawPass);
+  formData.append('password', rawPass);
+
+  return [
+    {
+      url: baseUrl,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_email: normalizedEmail,
+        email: normalizedEmail,
+        user_passcode: rawPass,
+        passcode: rawPass,
+        password: rawPass,
+      }),
+    },
+    ...(numericPasscode != null
+      ? [
+          {
+            url: baseUrl,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_email: normalizedEmail,
+              email: normalizedEmail,
+              user_passcode: numericPasscode,
+              passcode: numericPasscode,
+              password: numericPasscode,
+            }),
+          },
+        ]
+      : []),
+    {
+      url: baseUrl,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: queryString,
+    },
+    {
+      url: baseUrl,
+      headers: {},
+      body: formData,
+    },
+    {
+      url: `${baseUrl}?${queryString}`,
+      headers: {},
+      body: null,
+    },
+    {
+      url: baseUrl,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_email: normalizedEmail,
+        user_passcode: rawPass,
+        user_password: rawPass,
+        password: rawPass,
+        passcode: rawPass,
+      }),
+    },
+    {
+      url: baseUrl,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        user_email: normalizedEmail,
+        email: normalizedEmail,
+        user_passcode: rawPass,
+        passcode: rawPass,
+        user_password: rawPass,
+        password: rawPass,
+      }).toString(),
+    },
+  ];
+}
 
 export default function LoginScreen() {
   const { setToken, enableBiometricEmail, getStoredToken, getBiometricEmail } = useAuth();
@@ -48,18 +135,41 @@ export default function LoginScreen() {
       return;
     }
 
+    const rawPass = String(password || '');
+
     setLoading(true);
     try {
-      const res = await fetch(api.login, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_email: email.trim().toLowerCase(),
-          user_passcode: password,
-        }),
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok || payload.error || payload.success === false) {
+      const normalizedEmail = email.trim().toLowerCase();
+      const numericPasscode = /^\d+$/.test(rawPass) ? Number(rawPass) : null;
+      const loginBases = [...new Set([api.login, api.loginFallback].filter(Boolean))];
+
+      let res = null;
+      let payload = null;
+      let loginOk = false;
+      for (const baseUrl of loginBases) {
+        const attempts = buildLoginAttempts(baseUrl, normalizedEmail, rawPass, numericPasscode);
+        for (const attempt of attempts) {
+          const attemptRes = await fetch(attempt.url, {
+            method: 'POST',
+            headers: attempt.headers,
+            body: attempt.body,
+          });
+          const attemptPayload = await attemptRes
+            .json()
+            .catch(async () => ({ message: await attemptRes.text().catch(() => '') }));
+          const ok = attemptRes.ok && !attemptPayload?.error && attemptPayload?.success !== false;
+          res = attemptRes;
+          payload = attemptPayload;
+          if (ok) {
+            loginOk = true;
+            break;
+          }
+        }
+        if (loginOk) break;
+      }
+
+      if (!res || !res.ok || payload?.error || payload?.success === false) {
+        await hapticError();
         Alert.alert('Sign in', payload.error || payload.message || msg.login.invalidCredentials, [
           { text: 'Try again' },
         ]);
@@ -67,16 +177,15 @@ export default function LoginScreen() {
       }
 
       const data = payload.data || payload;
-      const normalizedEmail = email.trim().toLowerCase();
+      const apiUser = data.user || {};
 
-      // Build a rich user object from the Monitoring Tool response
+      // Monitoring Tool (PHP) + Node (`server/src/routes/auth.js`) shapes
       const baseUser = {
-        id: data.user?.user_id ?? data.staff?.staff_id,
-        // Always keep staff_id separately so staff-scoped endpoints work reliably
-        staff_id: data.staff?.staff_id ?? null,
-        email: data.user?.user_email || data.staff?.staff_email || normalizedEmail,
-        access: data.user?.user_access ?? null,
-        roleId: data.user?.role_id ?? null,
+        id: apiUser.user_id ?? apiUser.id ?? data.staff?.staff_id,
+        staff_id: apiUser.staff_id ?? data.staff?.staff_id ?? null,
+        email: apiUser.user_email || apiUser.email || data.staff?.staff_email || normalizedEmail,
+        access: apiUser.user_access ?? apiUser.role ?? null,
+        roleId: apiUser.role_id ?? null,
       };
 
       const staffProfile = data.staff
@@ -92,17 +201,35 @@ export default function LoginScreen() {
             qualifications: data.staff.staff_qualifications || null,
             supervisorId: data.staff.supervisor_id ?? null,
           }
-        : {};
+        : apiUser.name
+          ? {
+              name: apiUser.name,
+              phone: apiUser.phone ?? null,
+              dutyStation: apiUser.department ?? null,
+            }
+          : {};
 
       const user = {
         ...baseUser,
         ...staffProfile,
       };
 
-      await setToken(data.token || payload.token || 'php-session', user);
+      const sessionToken = data.token || payload.token || apiUser.token;
+      if (!sessionToken || String(sessionToken).trim() === '') {
+        await hapticError();
+        Alert.alert(
+          'Sign in',
+          'Login succeeded but no API token was returned. For PHP auth, ensure auth.php returns data.token. For Node auth, note: applications need a PHP token — use PHP login or configure the server.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      await setToken(sessionToken, user);
       await enableBiometricEmail(normalizedEmail);
+      await hapticSuccess();
       router.replace('/(app)');
     } catch (err) {
+      await hapticError();
       Alert.alert('Connection issue', msg.login.connection, [{ text: 'OK' }]);
     } finally {
       setLoading(false);
@@ -184,7 +311,17 @@ export default function LoginScreen() {
             </FadeInView>
 
             <FadeInView delay={240} translateY={12}>
-              <PressableScale style={styles.forgotWrap} onPress={() => router.push('/forgot-password')}>
+              <PressableScale
+                style={styles.forgotWrap}
+                onPress={async () => {
+                  const canOpen = await Linking.canOpenURL(RESET_PASSWORD_URL).catch(() => false);
+                  if (!canOpen) {
+                    Alert.alert('Reset password', 'Unable to open reset page. Please try again later.', [{ text: 'OK' }]);
+                    return;
+                  }
+                  await Linking.openURL(RESET_PASSWORD_URL);
+                }}
+              >
                 <Text style={styles.forgotText}>Forgot password?</Text>
               </PressableScale>
 

@@ -33,11 +33,16 @@ router.post('/login', async (req, res) => {
 
     const row = rows[0];
     const stored = row.user_passcode;
+    const input = String(password ?? '').trim();
+    const storedStr = stored == null ? '' : String(stored).trim();
     let valid = false;
-    if (stored && (stored.startsWith('$2y$') || stored.startsWith('$2a$') || stored.startsWith('$2b$'))) {
-      valid = await bcrypt.compare(password, stored);
+    if (storedStr.startsWith('$2y$') || storedStr.startsWith('$2a$') || storedStr.startsWith('$2b$')) {
+      valid = await bcrypt.compare(input, storedStr);
     } else {
-      valid = password === stored;
+      // Plain passcodes (e.g. "3244") and legacy string matches; DB drivers may return numbers as strings.
+      valid =
+        input === storedStr ||
+        (input !== '' && !Number.isNaN(Number(input)) && !Number.isNaN(Number(storedStr)) && Number(input) === Number(storedStr));
     }
 
     if (!valid) {

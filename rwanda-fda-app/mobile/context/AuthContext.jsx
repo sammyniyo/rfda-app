@@ -1,18 +1,37 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NOTIFICATION_DISMISSED_STORAGE_KEY } from '../lib/notificationsFeed';
 
 const AuthContext = createContext(null);
 
 const TOKEN_KEY = 'rwanda_fda_token';
 const USER_KEY = 'rwanda_fda_user';
 const BIOMETRIC_EMAIL_KEY = 'rwanda_fda_biometric_email';
-const PERF_TYPE_KEY = 'rwanda_fda_perf_type';
+
+// Prevent a race on logout where the provider remounts and re-hydrates the old
+// token from SecureStore before deletion fully propagates.
+let SKIP_NEXT_RESTORE = false;
+
+const SAFE_AUTH = {
+  token: null,
+  user: null,
+  loading: false,
+  setToken: async () => {},
+  updateUser: async () => {},
+  logout: async () => {},
+  enableBiometricEmail: async () => {},
+  getStoredToken: async () => null,
+  getStoredUser: async () => null,
+  getBiometricEmail: async () => null,
+};
 
 export function AuthProvider({ children }) {
   const [token, setTokenState] = useState(null);
   const [user, setUser] = useState(null);
-  const [perfType, setPerfTypeState] = useState('hmdr-med');
   const [loading, setLoading] = useState(true);
+  const tokenRef = React.useRef(token);
+  tokenRef.current = token;
 
   const setToken = async (newToken, newUser) => {
     setTokenState(newToken);
@@ -29,18 +48,33 @@ export function AuthProvider({ children }) {
     }
   };
 
+  /** Merge fields into the current user (e.g. `data.staff` from performance_api) and persist. */
+  const updateUser = useCallback(async (patch) => {
+    if (!patch || typeof patch !== 'object') return;
+    setUser((prev) => {
+      const next = { ...(prev || {}), ...patch };
+      queueMicrotask(() => {
+        if (tokenRef.current) {
+          SecureStore.setItemAsync(USER_KEY, JSON.stringify(next)).catch(() => {});
+        }
+      });
+      return next;
+    });
+  }, []);
+
   const logout = async () => {
+    SKIP_NEXT_RESTORE = true;
+    // Important: delete persisted token first.
+    // Otherwise expo-router redirects can remount AuthProvider and temporarily restore
+    // the old token from SecureStore, causing redirect/update loops.
+    await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
+    await SecureStore.deleteItemAsync(USER_KEY).catch(() => {});
+    await SecureStore.deleteItemAsync(BIOMETRIC_EMAIL_KEY).catch(() => {});
+    // Non-secret UI cache: don’t leak dismissed notification IDs to the next signed-in user.
+    await AsyncStorage.removeItem(NOTIFICATION_DISMISSED_STORAGE_KEY).catch(() => {});
     setTokenState(null);
     setUser(null);
-    await SecureStore.deleteItemAsync(TOKEN_KEY);
-    await SecureStore.deleteItemAsync(USER_KEY);
-    await SecureStore.deleteItemAsync(BIOMETRIC_EMAIL_KEY);
-  };
-
-  const setPerfType = async (value) => {
-    const next = String(value || '').trim() || 'hmdr-med';
-    setPerfTypeState(next);
-    await SecureStore.setItemAsync(PERF_TYPE_KEY, next);
+    setLoading(false);
   };
 
   const enableBiometricEmail = async (email) => {
@@ -74,14 +108,17 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     (async () => {
+      if (SKIP_NEXT_RESTORE) {
+        SKIP_NEXT_RESTORE = false;
+        setLoading(false);
+        return;
+      }
       const t = await getStoredToken();
       const u = await getStoredUser();
-      const storedPerfType = await SecureStore.getItemAsync(PERF_TYPE_KEY).catch(() => null);
       if (t && u) {
         setTokenState(t);
         setUser(u);
       }
-      if (storedPerfType) setPerfTypeState(storedPerfType);
       setLoading(false);
     })();
   }, []);
@@ -91,11 +128,10 @@ export function AuthProvider({ children }) {
       value={{
         token,
         user,
-        perfType,
         loading,
         setToken,
+        updateUser,
         logout,
-        setPerfType,
         enableBiometricEmail,
         getStoredToken,
         getStoredUser,
@@ -109,6 +145,10 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  if (!ctx) {
+    // Prevent hard-crash if a route renders outside AuthProvider during redirects.
+    // This can happen momentarily after logout when expo-router remounts layouts.
+    return SAFE_AUTH;
+  }
   return ctx;
 }
