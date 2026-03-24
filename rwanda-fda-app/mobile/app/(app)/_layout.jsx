@@ -1,20 +1,46 @@
-import { Redirect, Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Animated, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../../constants/theme';
 import { useThemeMode } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useQuery } from '../../hooks/useQuery';
 import { getAuthHeaders, isApiSuccess } from '../../lib/api';
 import { api } from '../../constants/api';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
+import AuthLoadingScreen from '../../components/AuthLoadingScreen';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { fetchMonitoringPerformance, extractPerformanceTasks } from '../../lib/monitoringPerformance';
+import { getMonitoringStaffId } from '../../lib/staffSession';
 
+/** Tab bar palette — dark bar + light bar with gradient via tabBarBackground */
+const TAB_BAR = {
+  dark: {
+    gradient: ['#1c1c1e', '#000000'],
+    barBorder: 'rgba(255,255,255,0.1)',
+    active: '#ffffff',
+    inactive: '#8d9599',
+    indicator: '#ffffff',
+    badgeBg: '#25d366',
+  },
+  light: {
+    gradient: ['#ffffff', '#f2f4f5'],
+    barBorder: 'rgba(0,0,0,0.07)',
+    active: '#0f5e47',
+    inactive: '#6b7280',
+    indicator: '#0f5e47',
+    badgeBg: colors.fdaGreen,
+  },
+};
+
+/** Line-art icons only (outline weight reads like WhatsApp iOS). */
 const TAB_ICONS = {
-  index: ['grid-outline', 'grid'],
-  tasks: ['checkbox-outline', 'checkbox'],
-  applications: ['document-text-outline', 'document-text'],
-  notifications: ['notifications-outline', 'notifications'],
-  profile: ['person-outline', 'person'],
+  index: 'home-outline',
+  tasks: 'checkbox-outline',
+  applications: 'document-text-outline',
+  notifications: 'notifications-outline',
+  profile: 'person-outline',
 };
 
 const TAB_LABELS = {
@@ -25,77 +51,85 @@ const TAB_LABELS = {
   profile: 'You',
 };
 
-function AnimatedTabIcon({ focused, color, size, routeName, isDark }) {
-  const progress = useRef(new Animated.Value(focused ? 1 : 0)).current;
+function countOpenTasksFromPayload(list) {
+  if (!Array.isArray(list)) return 0;
+  return list.filter((t) => {
+    if (t.is_completed) return false;
+    const s = String(t.status ?? t.task_status ?? '').toLowerCase();
+    return s !== 'completed' && s !== 'review';
+  }).length;
+}
 
-  useEffect(() => {
-    Animated.spring(progress, {
-      toValue: focused ? 1 : 0,
-      useNativeDriver: true,
-      friction: 8,
-      tension: 90,
-    }).start();
-  }, [focused, progress]);
-
-  const [outline, filled] = TAB_ICONS[routeName] || ['ellipse-outline', 'ellipse'];
-  const scale = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.08],
-  });
-  const lift = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -2],
-  });
-  const lineScale = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 1],
-  });
+function TabBarIcon({ focused, routeName, isDark, badgeCount = 0 }) {
+  const palette = isDark ? TAB_BAR.dark : TAB_BAR.light;
+  const iconColor = focused ? palette.active : palette.inactive;
+  const name = TAB_ICONS[routeName] || 'ellipse-outline';
+  const showBadge = badgeCount > 0;
+  const badgeLabel = badgeCount > 99 ? '99+' : String(badgeCount);
+  const badgeBorder = isDark ? '#000000' : '#ffffff';
 
   return (
-    <View style={{ width: 52, alignItems: 'center', justifyContent: 'center', paddingTop: 6 }}>
-      <Animated.View
-        style={{
-          position: 'absolute',
-          top: 0,
-          width: 28,
-          height: 3,
-          borderBottomLeftRadius: 3,
-          borderBottomRightRadius: 3,
-          backgroundColor: colors.fdaGreen,
-          opacity: progress,
-          transform: [{ scaleX: lineScale }],
-        }}
-      />
-      <Animated.View style={{ transform: [{ translateY: lift }, { scale }] }}>
-        <Ionicons
-          name={focused ? filled : outline}
-          size={size ?? 22}
-          color={focused ? colors.fdaGreen : color}
-        />
-      </Animated.View>
-      {!focused && (
-        <View
-          style={{
-            position: 'absolute',
-            top: 0,
-            width: 28,
-            height: 3,
-            borderBottomLeftRadius: 3,
-            borderBottomRightRadius: 3,
-            backgroundColor: isDark ? 'rgba(148,163,184,0.15)' : 'rgba(15,23,42,0.08)',
-          }}
-        />
-      )}
+    <View style={styles.iconColumn}>
+      <View style={styles.iconSlot}>
+        <View style={styles.iconWithBadge}>
+          <Ionicons name={name} size={24} color={iconColor} />
+          {showBadge ? (
+            <View
+              style={[
+                styles.badge,
+                {
+                  backgroundColor: palette.badgeBg,
+                  borderColor: badgeBorder,
+                  minWidth: badgeLabel.length > 2 ? 26 : badgeLabel.length > 1 ? 22 : 18,
+                  paddingHorizontal: badgeLabel.length > 2 ? 6 : 5,
+                },
+              ]}
+            >
+              <Text style={styles.badgeText} allowFontScaling={false}>
+                {badgeLabel}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+      <View style={styles.indicatorTrack}>
+        {focused ? (
+          <View style={[styles.indicator, { backgroundColor: palette.indicator }]} />
+        ) : (
+          <View style={styles.indicatorPlaceholder} />
+        )}
+      </View>
     </View>
   );
 }
 
-export default function AppLayout() {
-  const { isDark, resolvedTheme } = useThemeMode();
-  const { token, loading } = useAuth();
+/**
+ * Tabs + notification polling — only mounted when authenticated.
+ * Must stay separate from the auth gate so hook order never changes on logout (avoids crashes + redirect loops).
+ */
+function AuthenticatedTabs({ isDark, resolvedTheme, token }) {
+  const insets = useSafeAreaInsets();
+  const { user } = useAuth();
 
-  if (loading) return null;
-  if (!token) return <Redirect href="/" />;
+  const tasksTabQuery = useQuery(
+    async () => {
+      if (!token) return [];
+      const staffId = getMonitoringStaffId(user);
+      const { payload } = await fetchMonitoringPerformance({
+        staffId,
+        token,
+        getToken: () => token,
+      });
+      return extractPerformanceTasks(payload);
+    },
+    [token, user?.staff_id],
+    { cacheKey: token ? `tab_bar_tasks_${token}` : undefined }
+  );
+
+  const openTaskCount = useMemo(
+    () => countOpenTasksFromPayload(tasksTabQuery.data),
+    [tasksTabQuery.data]
+  );
 
   const notificationsQuery = useQuery(
     async () => {
@@ -120,11 +154,22 @@ export default function AppLayout() {
   );
   const notifItems = Array.isArray(notificationsQuery.data) ? notificationsQuery.data : [];
   const unreadCount = notifItems.filter((n) => !n?.read_at).length;
+  const palette = isDark ? TAB_BAR.dark : TAB_BAR.light;
+
+  const TabBarBg = () => (
+    <LinearGradient
+      colors={[...palette.gradient]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+      style={StyleSheet.absoluteFill}
+    />
+  );
 
   useEffect(() => {
     if (!token) return undefined;
     const id = setInterval(() => {
       notificationsQuery.refetch().catch(() => {});
+      tasksTabQuery.refetch().catch(() => {});
     }, 30000);
     return () => clearInterval(id);
   }, [token]);
@@ -134,63 +179,163 @@ export default function AppLayout() {
       key={resolvedTheme}
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: colors.fdaGreen,
-        tabBarInactiveTintColor: isDark ? '#94a3b8' : colors.textMuted,
+        tabBarActiveTintColor: palette.active,
+        tabBarInactiveTintColor: palette.inactive,
         tabBarHideOnKeyboard: true,
-        tabBarStyle: {
-          height: 60,
-          paddingTop: 4,
-          paddingBottom: 6,
-          borderTopWidth: 0.5,
-          borderTopColor: isDark ? 'rgba(148,163,184,0.22)' : 'rgba(15,23,42,0.08)',
-          backgroundColor: isDark ? '#0f172a' : colors.card,
+        tabBarShowLabel: true,
+        tabBarBackground: TabBarBg,
+        tabBarItemStyle: {
+          paddingTop: 8,
+          paddingBottom: 2,
         },
-        tabBarIcon: ({ focused, color, size }) => (
-          <AnimatedTabIcon
-            focused={focused}
-            color={color}
-            size={size}
-            routeName={route.name}
-            isDark={isDark}
-          />
-        ),
-        tabBarLabel: ({ focused, color }) => (
-          <Text
-            style={{
-              fontSize: 10,
-              fontWeight: focused ? '700' : '500',
-              marginTop: 1,
-              color: focused ? colors.fdaGreen : isDark ? '#94a3b8' : colors.textMuted,
-            }}
-          >
-            {TAB_LABELS[route.name] || route.name}
-          </Text>
+        tabBarStyle: {
+          backgroundColor: 'transparent',
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: palette.barBorder,
+          elevation: 0,
+          shadowOpacity: 0,
+          minHeight: 56 + Math.max(insets.bottom, 8),
+          paddingTop: 6,
+          paddingBottom: Math.max(insets.bottom, 8),
+        },
+        tabBarIcon: ({ focused }) => {
+          const badgeCount =
+            route.name === 'index'
+              ? openTaskCount
+              : route.name === 'notifications'
+                ? unreadCount
+                : 0;
+          return (
+            <TabBarIcon focused={focused} routeName={route.name} isDark={isDark} badgeCount={badgeCount} />
+          );
+        },
+        tabBarLabel: ({ focused }) => (
+          <View style={styles.tabLabelWrap}>
+            <Text
+              allowFontScaling={false}
+              numberOfLines={1}
+              style={[
+                styles.tabLabelText,
+                {
+                  fontWeight: focused ? '700' : '500',
+                  color: focused ? palette.active : palette.inactive,
+                },
+              ]}
+            >
+              {TAB_LABELS[route.name] || route.name}
+            </Text>
+          </View>
         ),
       })}
     >
-      <Tabs.Screen name="index" options={{ title: 'Dashboard', tabBarLabel: 'Home' }} />
+      <Tabs.Screen name="index" options={{ title: 'Dashboard' }} />
       <Tabs.Screen name="tasks" options={{ title: 'My Tasks' }} />
-      {/* Hide the task detail stack from the tab bar but keep it routable */}
       <Tabs.Screen name="task" options={{ href: null }} />
-      {/* Hidden settings screen, accessible from profile or other links */}
       <Tabs.Screen name="settings" options={{ href: null }} />
       <Tabs.Screen name="applications" options={{ title: 'Applications' }} />
-      <Tabs.Screen
-        name="notifications"
-        options={{
-          title: 'Notifications',
-          tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
-          tabBarBadgeStyle: {
-            backgroundColor: colors.danger,
-            color: '#fff',
-            fontSize: 10,
-            minWidth: 16,
-            height: 16,
-            lineHeight: 14,
-          },
-        }}
-      />
+      <Tabs.Screen name="notifications" options={{ title: 'Notifications' }} />
       <Tabs.Screen name="profile" options={{ title: 'My Profile' }} />
     </Tabs>
   );
 }
+
+export default function AppLayout() {
+  const { isDark, resolvedTheme } = useThemeMode();
+  const { token, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+    if (!token) {
+      // Avoid <Redirect /> here — expo-router 6 can re-run focus effects and loop with maximum update depth.
+      router.replace('/');
+    }
+  }, [loading, token, router]);
+
+  if (loading) {
+    return <AuthLoadingScreen message="Restoring your session…" />;
+  }
+  if (!token) {
+    return <AuthLoadingScreen message="Signing out…" />;
+  }
+
+  return <AuthenticatedTabs isDark={isDark} resolvedTheme={resolvedTheme} token={token} />;
+}
+
+const styles = StyleSheet.create({
+  tabLabelWrap: {
+    minHeight: 14,
+    marginTop: 4,
+    marginBottom: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    maxWidth: 72,
+  },
+  tabLabelText: {
+    fontSize: 10.5,
+    letterSpacing: -0.15,
+    textAlign: 'center',
+  },
+  iconColumn: {
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    width: 64,
+  },
+  iconSlot: {
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  iconWithBadge: {
+    width: 36,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: -2,
+    right: -6,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 9,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.25,
+        shadowRadius: 2,
+      },
+      android: { elevation: 3 },
+    }),
+  },
+  badgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '700',
+    textAlign: 'center',
+    ...Platform.select({ android: { includeFontPadding: false } }),
+  },
+  indicatorTrack: {
+    height: 3,
+    marginTop: 3,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    width: '100%',
+  },
+  indicator: {
+    width: 28,
+    height: 3,
+    borderRadius: 2,
+  },
+  indicatorPlaceholder: {
+    height: 3,
+    width: 28,
+  },
+});

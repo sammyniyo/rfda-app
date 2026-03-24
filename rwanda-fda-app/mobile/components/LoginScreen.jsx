@@ -23,6 +23,7 @@ import { api } from '../constants/api';
 import { errors as msg } from '../lib/messages';
 import PressableScale from './PressableScale';
 import FadeInView from './FadeInView';
+import PreviewWebNotice from './PreviewWebNotice';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 
 const RESET_PASSWORD_URL = 'https://rwandafda.gov.rw/monitoring-tool/forgot_password.php';
@@ -268,6 +269,10 @@ export default function LoginScreen() {
               <Image source={require('../assets/RwandaFDA.png')} style={styles.logo} resizeMode="contain" />
               <Text style={styles.tagline}>Staff Portal</Text>
               <Text style={styles.subtitle}>Sign in to manage tasks, track applications, and stay updated.</Text>
+            </FadeInView>
+
+            <FadeInView delay={120} translateY={8}>
+              <PreviewWebNotice compact forceLight style={{ marginBottom: 20 }} />
             </FadeInView>
 
             <FadeInView delay={160} translateY={12}>

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { FlatList, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '../../hooks/useQuery';
@@ -48,8 +48,11 @@ export default function Applications() {
       const list = extractPerformanceApplications(payload);
       const data = payload?.data != null ? payload.data : {};
 
-      return list.map((a) => ({
-        id: a.application_id ?? a.assignment_id,
+      return list.map((a, idx) => ({
+        // assignment_id is unique per row; application_id repeats across reassignments — duplicate keys crashed the list
+        rowKey: String(a.assignment_id ?? `row-${a.application_id ?? 'x'}-${idx}`),
+        application_id: a.application_id,
+        assignment_id: a.assignment_id,
         reference_number: a.tracking_no,
         title: a.applicant,
         timeline_status: a.timeline_status || null,
@@ -93,15 +96,6 @@ export default function Applications() {
     });
   }, [appList, filterKey, queryText]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await applicationsQuery.refetch();
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
   const pageBg = isDark ? '#0b1220' : colors.background;
   const cardBg = isDark ? '#111827' : colors.card;
   const borderColor = isDark ? 'rgba(148,163,184,0.2)' : colors.border;
@@ -118,18 +112,72 @@ export default function Applications() {
     return { bg: isDark ? '#1a2744' : '#eff6ff', fg: meta.fg };
   }
 
-  if (loading && appList.length === 0 && !errorInfo) {
-    return <ListSkeleton count={6} />;
-  }
+  const refetchRef = useRef(applicationsQuery.refetch);
+  refetchRef.current = applicationsQuery.refetch;
 
-  return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: pageBg }]} edges={['top', 'left', 'right']}>
-      <ScrollView
-        style={[styles.container, { backgroundColor: pageBg }]}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.fdaGreen} />}
-      >
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetchRef.current();
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  const renderItem = useCallback(
+    ({ item: app }) => {
+      const meta = statusMeta(app);
+      const pc = pillColors(meta);
+      const remaining =
+        app.days_remaining == null || app.days_remaining === '' ? '—' : `${app.days_remaining}d`;
+
+      return (
+        <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
+          <View style={styles.cardTop}>
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text style={[styles.ref, { color: colors.fdaGreen }]} numberOfLines={1}>
+                {app.reference_number || `#${app.application_id ?? app.assignment_id}`}
+              </Text>
+              <Text style={[styles.appTitle, { color: textMain }]} numberOfLines={2}>
+                {app.title || 'Application'}
+              </Text>
+            </View>
+            <View style={[styles.statusPill, { backgroundColor: pc.bg }]}>
+              <Text style={[styles.statusText, { color: pc.fg }]}>{meta.label}</Text>
+            </View>
+          </View>
+
+          <View style={[styles.metricsRow, { borderTopColor: borderColor }]}>
+            <View style={styles.metric}>
+              <Text style={[styles.metricLabel, { color: textMuted }]}>Stage</Text>
+              <Text style={[styles.metricValue, { color: textMain }]} numberOfLines={1}>
+                {app.assigned_stage || '—'}
+              </Text>
+            </View>
+            <View style={[styles.metricDivider, { backgroundColor: borderColor }]} />
+            <View style={styles.metric}>
+              <Text style={[styles.metricLabel, { color: textMuted }]}>Days left</Text>
+              <Text style={[styles.metricValue, { color: textMain }]}>{remaining}</Text>
+            </View>
+            <View style={[styles.metricDivider, { backgroundColor: borderColor }]} />
+            <View style={styles.metric}>
+              <Text style={[styles.metricLabel, { color: textMuted }]}>Progress</Text>
+              <Text style={[styles.metricValue, { color: textMain }]}>
+                {app.days_allowed != null && app.days_taken != null ? `${app.days_taken}/${app.days_allowed}d` : '—'}
+              </Text>
+            </View>
+          </View>
+        </View>
+      );
+    },
+    [borderColor, cardBg, isDark, textMain, textMuted]
+  );
+
+  const keyExtractor = useCallback((item) => item.rowKey, []);
+
+  const listHeader = useMemo(
+    () => (
+      <>
         {errorInfo ? (
           <FriendlyErrorBanner info={errorInfo} onRetry={handleRefresh} isDark={isDark} />
         ) : null}
@@ -162,7 +210,13 @@ export default function Applications() {
               ) : null}
             </View>
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
+            <ScrollView
+              horizontal
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.chipsRow}
+            >
               {FILTER_CHIPS.map((chip) => {
                 const active = filterKey === chip.key;
                 return (
@@ -200,69 +254,64 @@ export default function Applications() {
               </Text>
             </View>
           </FadeInView>
-        ) : filteredList.length === 0 ? (
-          <FadeInView delay={80} translateY={8}>
-            <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor }]}>
-              <Ionicons name="funnel-outline" size={36} color={textMuted} />
-              <Text style={[styles.emptyTitle, { color: textMain }]}>No matches</Text>
-              <Text style={[styles.emptyBody, { color: textMuted }]}>Try another filter or clear the search.</Text>
-              <PressableScale style={styles.clearBtn} onPress={() => { setFilterKey(''); setSearch(''); }} hapticType="light">
-                <Text style={styles.clearBtnText}>Reset filters</Text>
-              </PressableScale>
-            </View>
-          </FadeInView>
-        ) : (
-          filteredList.map((app, index) => {
-            const meta = statusMeta(app);
-            const pc = pillColors(meta);
-            const remaining =
-              app.days_remaining == null || app.days_remaining === '' ? '—' : `${app.days_remaining}d`;
+        ) : null}
+      </>
+    ),
+    [
+      errorInfo,
+      isDark,
+      handleRefresh,
+      cardBg,
+      borderColor,
+      textMain,
+      textMuted,
+      inputBg,
+      chipInactiveBg,
+      chipInactiveBorder,
+      appList.length,
+      filteredList.length,
+      search,
+      filterKey,
+    ]
+  );
 
-            return (
-              <FadeInView key={app.id ?? index} delay={60 + index * 40} translateY={8}>
-                <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
-                  <View style={styles.cardTop}>
-                    <View style={{ flex: 1, paddingRight: 8 }}>
-                      <Text style={[styles.ref, { color: colors.fdaGreen }]} numberOfLines={1}>
-                        {app.reference_number || `#${app.id}`}
-                      </Text>
-                      <Text style={[styles.appTitle, { color: textMain }]} numberOfLines={2}>
-                        {app.title || 'Application'}
-                      </Text>
-                    </View>
-                    <View style={[styles.statusPill, { backgroundColor: pc.bg }]}>
-                      <Text style={[styles.statusText, { color: pc.fg }]}>{meta.label}</Text>
-                    </View>
-                  </View>
+  if (loading && appList.length === 0 && !errorInfo) {
+    return <ListSkeleton count={6} />;
+  }
 
-                  <View style={[styles.metricsRow, { borderTopColor: borderColor }]}>
-                    <View style={styles.metric}>
-                      <Text style={[styles.metricLabel, { color: textMuted }]}>Stage</Text>
-                      <Text style={[styles.metricValue, { color: textMain }]} numberOfLines={1}>
-                        {app.assigned_stage || '—'}
-                      </Text>
-                    </View>
-                    <View style={[styles.metricDivider, { backgroundColor: borderColor }]} />
-                    <View style={styles.metric}>
-                      <Text style={[styles.metricLabel, { color: textMuted }]}>Days left</Text>
-                      <Text style={[styles.metricValue, { color: textMain }]}>{remaining}</Text>
-                    </View>
-                    <View style={[styles.metricDivider, { backgroundColor: borderColor }]} />
-                    <View style={styles.metric}>
-                      <Text style={[styles.metricLabel, { color: textMuted }]}>Progress</Text>
-                      <Text style={[styles.metricValue, { color: textMain }]}>
-                        {app.days_allowed != null && app.days_taken != null
-                          ? `${app.days_taken}/${app.days_allowed}d`
-                          : '—'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </FadeInView>
-            );
-          })
-        )}
-      </ScrollView>
+  const listEmpty =
+    appList.length > 0 && filteredList.length === 0 ? (
+      <FadeInView delay={0} translateY={6}>
+        <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor }]}>
+          <Ionicons name="funnel-outline" size={36} color={textMuted} />
+          <Text style={[styles.emptyTitle, { color: textMain }]}>No matches</Text>
+          <Text style={[styles.emptyBody, { color: textMuted }]}>Try another filter or clear the search.</Text>
+          <PressableScale style={styles.clearBtn} onPress={() => { setFilterKey(''); setSearch(''); }} hapticType="light">
+            <Text style={styles.clearBtnText}>Reset filters</Text>
+          </PressableScale>
+        </View>
+      </FadeInView>
+    ) : null;
+
+  return (
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: pageBg }]} edges={['top', 'left', 'right']}>
+      <FlatList
+        data={filteredList}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={listEmpty}
+        contentContainerStyle={styles.listContent}
+        style={[styles.container, { backgroundColor: pageBg }]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.fdaGreen} />}
+        keyboardShouldPersistTaps="handled"
+        initialNumToRender={12}
+        maxToRenderPerBatch={16}
+        windowSize={8}
+        removeClippedSubviews={Platform.OS === 'android'}
+        ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
+      />
     </SafeAreaView>
   );
 }
@@ -270,6 +319,7 @@ export default function Applications() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   container: { flex: 1 },
+  listContent: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: 104, flexGrow: 1 },
   content: { padding: spacing.md, paddingBottom: 104, gap: spacing.sm },
   headerCard: {
     borderRadius: radius.xl,

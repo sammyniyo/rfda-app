@@ -250,11 +250,13 @@ try {
                     a.tracking_no               AS _tracking,
                     a.hm_mah                    AS _applicant,
                     a.application_current_stage AS _current_stage,
-                    COALESCE(hs.status_description, CONCAT('Stage ', aa.stage_id)) AS _stage_name
+                    COALESCE(hs.status_description, CONCAT('Stage ', aa.stage_id)) AS _stage_name,
+                    COALESCE(hs_cur.status_description, CONCAT('Stage ', a.application_current_stage)) AS _current_stage_name
                 FROM tbl_application_assignment aa
                 LEFT JOIN tbl_staff ab ON aa.assigned_by = ab.staff_id
                 LEFT JOIN tbl_hm_applications a ON aa.application_id = a.hm_application_id
                 LEFT JOIN tbl_hm_applications_status hs ON aa.stage_id = hs.status_id
+                LEFT JOIN tbl_hm_applications_status hs_cur ON a.application_current_stage = hs_cur.status_id
                 WHERE aa.application_type = 'hmdr-med'
                   AND aa.staff_id         = :staff_id
                   AND aa.staff_id IS NOT NULL
@@ -309,7 +311,7 @@ try {
                     'applicant'          => $asgn['_applicant'] ?? null,
                     'assigned_stage'     => $asgn['_stage_name'] ?? ('Stage ' . $asgn['stage_id']),
                     'stage_id'           => (int)$asgn['stage_id'],
-                    'current_stage_name' => null,
+                    'current_stage_name' => $asgn['_current_stage_name'] ?? null,
                     'current_stage_id'   => isset($asgn['_current_stage']) ? (int)$asgn['_current_stage'] : null,
                     'assignment_date'    => $asgn['assignment_date'],
                     'submission_date'    => $asgn['submission_date'] ?: null,

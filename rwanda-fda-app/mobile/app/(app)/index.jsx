@@ -19,7 +19,9 @@ import {
 import { getMonitoringStaffId } from '../../lib/staffSession';
 import FadeInView from '../../components/FadeInView';
 import PressableScale from '../../components/PressableScale';
-import { DashboardSkeleton } from '../../components/SkeletonLoader';
+import { formatStat, tabularNumberStyle } from '../../lib/formatStat';
+import AuthLoadingScreen from '../../components/AuthLoadingScreen';
+import PreviewWebNotice from '../../components/PreviewWebNotice';
 
 const DASHBOARD_AUTO_REFRESH_MS = 60000;
 
@@ -118,7 +120,7 @@ export default function Dashboard() {
   const apps = useMemo(
     () =>
       rawApps.map((a, index) => ({
-        id: a.application_id ?? a.assignment_id ?? index + 1,
+        id: a.assignment_id ?? a.application_id ?? index + 1,
         trackingNo: a.tracking_no ?? a.reference_number ?? `APP-${index + 1}`,
         applicant: a.applicant ?? a.company_name ?? 'Applicant',
         timelineStatus: String(a.timeline_status || 'ontime').toLowerCase(),
@@ -134,6 +136,9 @@ export default function Dashboard() {
 
   const appSummary = performanceData?.applications_summary;
   const taskSummary = performanceData?.tasks_summary;
+  const totalWorkItems = performanceData?.total_work_items;
+  const totalAppAssignments = performanceData?.total_app_assignments;
+  const totalTasksFromApi = performanceData?.total_tasks;
 
   const unreadCount = Array.isArray(notifications) ? notifications.filter((n) => !n?.read_at).length : 0;
   const openTasks = tasks.filter((t) => t.status !== 'completed').length;
@@ -237,7 +242,9 @@ export default function Dashboard() {
     return () => clearInterval(id);
   }, [token]);
 
-  if (perfLoading && !performanceData && !perfErrorInfo) return <DashboardSkeleton />;
+  if (perfLoading && !performanceData && !perfErrorInfo) {
+    return <AuthLoadingScreen message="Loading your dashboard…" />;
+  }
 
   const pageBg = isDark ? '#0b1220' : colors.background;
   const cardBg = isDark ? '#111827' : colors.card;
@@ -262,6 +269,10 @@ export default function Dashboard() {
             />
           </FadeInView>
         ) : null}
+
+        <FadeInView delay={40} translateY={10}>
+          <PreviewWebNotice style={{ marginBottom: 12 }} />
+        </FadeInView>
 
         <FadeInView delay={0} translateY={12}>
           <View
@@ -288,24 +299,108 @@ export default function Dashboard() {
                 </View>
               </View>
               <View style={[styles.heroStatsRow, { borderTopColor: borderColor }]}>
-                <View style={styles.heroStatCell}>
-                  <Text style={[styles.heroMiniValue, { color: colors.fdaGreen }]}>{heroOpenTasks}</Text>
+                <View style={[styles.heroStatCell, { backgroundColor: isDark ? 'rgba(15,23,42,0.5)' : '#f8fafc' }]}>
+                  <Text style={[styles.heroMiniValue, tabularNumberStyle, { color: colors.fdaGreen }]}>
+                    {formatStat(heroOpenTasks)}
+                  </Text>
                   <Text style={[styles.heroMiniLabel, { color: textMuted }]}>Open tasks</Text>
                 </View>
                 <View style={[styles.heroStatDivider, { backgroundColor: borderColor }]} />
-                <View style={styles.heroStatCell}>
-                  <Text style={[styles.heroMiniValue, { color: colors.fdaBlue }]}>{heroAppCount}</Text>
-                  <Text style={[styles.heroMiniLabel, { color: textMuted }]}>Applications</Text>
+                <View style={[styles.heroStatCell, { backgroundColor: isDark ? 'rgba(15,23,42,0.5)' : '#f8fafc' }]}>
+                  <Text style={[styles.heroMiniValue, tabularNumberStyle, { color: colors.fdaBlue }]}>
+                    {formatStat(heroAppCount)}
+                  </Text>
+                  <Text style={[styles.heroMiniLabel, { color: textMuted }]}>Assignments</Text>
+                  {appSummary?.unique_applications != null &&
+                  Number(appSummary.unique_applications) !== Number(heroAppCount) ? (
+                    <Text style={[styles.heroMiniHint, { color: textMuted }]} numberOfLines={1}>
+                      {formatStat(appSummary.unique_applications)} unique
+                    </Text>
+                  ) : null}
                 </View>
                 <View style={[styles.heroStatDivider, { backgroundColor: borderColor }]} />
-                <View style={styles.heroStatCell}>
-                  <Text style={[styles.heroMiniValue, { color: unreadCount > 0 ? colors.danger : textMain }]}>{unreadCount}</Text>
+                <View style={[styles.heroStatCell, { backgroundColor: isDark ? 'rgba(15,23,42,0.5)' : '#f8fafc' }]}>
+                  <Text
+                    style={[
+                      styles.heroMiniValue,
+                      tabularNumberStyle,
+                      { color: unreadCount > 0 ? colors.danger : textMain },
+                    ]}
+                  >
+                    {formatStat(unreadCount)}
+                  </Text>
                   <Text style={[styles.heroMiniLabel, { color: textMuted }]}>Unread alerts</Text>
                 </View>
               </View>
             </View>
           </View>
         </FadeInView>
+
+        {appSummary && typeof appSummary === 'object' ? (
+          <FadeInView delay={55} translateY={8}>
+            <View style={[styles.workloadCard, { backgroundColor: cardBg, borderColor }]}>
+              <View style={styles.workloadTop}>
+                <Text style={[styles.workloadTitle, { color: textMain }]}>Workload snapshot</Text>
+                <Text style={[styles.workloadSub, { color: textMuted }]} numberOfLines={2}>
+                  Same window as your performance score (YTD)
+                </Text>
+              </View>
+              <View style={styles.workloadRow}>
+                {(() => {
+                  const assign = totalAppAssignments ?? appSummary.total;
+                  const work = totalWorkItems ?? assign;
+                  const tasksN = totalTasksFromApi ?? taskSummary?.total ?? 0;
+                  const cells = [
+                    { label: 'Assignments', value: assign, accent: colors.fdaBlue },
+                    { label: 'Tasks', value: tasksN, accent: colors.fdaGreen },
+                  ];
+                  if (Number(work) !== Number(assign)) {
+                    cells.unshift({ label: 'Work items', value: work, accent: textMain });
+                  }
+                  return cells.map((cell) => (
+                    <View
+                      key={cell.label}
+                      style={[
+                        styles.workloadCell,
+                        { backgroundColor: isDark ? 'rgba(15,23,42,0.55)' : '#f1f5f9' },
+                      ]}
+                    >
+                      <Text style={[styles.workloadValue, tabularNumberStyle, { color: cell.accent }]}>
+                        {formatStat(cell.value)}
+                      </Text>
+                      <Text style={[styles.workloadLabel, { color: textMuted }]}>{cell.label}</Text>
+                    </View>
+                  ));
+                })()}
+              </View>
+              <Text style={[styles.workloadSectionLabel, { color: textMuted }]}>Assignment status</Text>
+              <View style={styles.workloadGrid}>
+                {[
+                  { label: 'Unique filings', value: appSummary.unique_applications, dot: '#6366f1' },
+                  { label: 'Active', value: appSummary.active, dot: colors.fdaBlue },
+                  { label: 'Completed', value: appSummary.completed, dot: colors.success },
+                  { label: 'On time', value: appSummary.ontime, dot: colors.fdaGreen },
+                  { label: 'At risk', value: appSummary.at_risk, dot: colors.warning },
+                  { label: 'Delayed', value: appSummary.delayed, dot: colors.danger },
+                ].map((cell) => (
+                  <View
+                    key={cell.label}
+                    style={[
+                      styles.workloadMini,
+                      { borderColor, backgroundColor: isDark ? 'rgba(15,23,42,0.35)' : '#f8fafc' },
+                    ]}
+                  >
+                    <View style={[styles.workloadDot, { backgroundColor: cell.dot }]} />
+                    <Text style={[styles.workloadMiniValue, tabularNumberStyle, { color: textMain }]}>
+                      {formatStat(cell.value)}
+                    </Text>
+                    <Text style={[styles.workloadMiniLabel, { color: textMuted }]}>{cell.label}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </FadeInView>
+        ) : null}
 
         <FadeInView delay={70} translateY={8}>
           <View style={styles.quickRow}>
@@ -331,10 +426,10 @@ export default function Dashboard() {
         <FadeInView delay={120} translateY={8}>
           <View style={styles.kpiGrid}>
             {[
-              { label: 'Completion', value: `${completionRate}%`, icon: 'analytics-outline', tone: 'green' },
-              { label: 'In Progress', value: inProgressForKpi, icon: 'timer-outline', tone: 'blue' },
-              { label: 'Due Soon', value: dueSoonTasks, icon: 'alarm-outline', tone: 'warning' },
-              { label: 'Delayed Apps', value: delayedAppsForKpi, icon: 'alert-circle-outline', tone: 'danger' },
+              { label: 'Task completion', value: `${formatStat(completionRate)}%`, icon: 'analytics-outline', tone: 'green' },
+              { label: 'In progress', value: formatStat(inProgressForKpi), icon: 'timer-outline', tone: 'blue' },
+              { label: 'Due soon', value: formatStat(dueSoonTasks), icon: 'alarm-outline', tone: 'warning' },
+              { label: 'Delayed apps', value: formatStat(delayedAppsForKpi), icon: 'alert-circle-outline', tone: 'danger' },
             ].map((kpi) => {
               const tone = kpiTone(isDark, kpi.tone);
               return (
@@ -342,7 +437,7 @@ export default function Dashboard() {
                   <View style={[styles.kpiIconWrap, { backgroundColor: tone.bg }]}>
                     <Ionicons name={kpi.icon} size={16} color={tone.fg} />
                   </View>
-                  <Text style={[styles.kpiValue, { color: textMain }]}>{kpi.value}</Text>
+                  <Text style={[styles.kpiValue, tabularNumberStyle, { color: textMain }]}>{kpi.value}</Text>
                   <Text style={[styles.kpiLabel, { color: textMuted }]}>{kpi.label}</Text>
                 </View>
               );
@@ -427,7 +522,11 @@ export default function Dashboard() {
                       <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
                         <Text style={[styles.statusText, { color: tone.color }]}>{tone.label}</Text>
                       </View>
-                      <Text style={[styles.rowDays, { color: textMain }]}>{item.daysRemaining}</Text>
+                      <Text style={[styles.rowDays, tabularNumberStyle, { color: textMain }]}>
+                        {item.daysRemaining == null || Number.isNaN(Number(item.daysRemaining))
+                          ? '—'
+                          : formatStat(item.daysRemaining)}
+                      </Text>
                     </PressableScale>
                     {expanded ? (
                       <View style={[styles.expandedBox, { backgroundColor: isDark ? '#0f172a' : '#f8fafc', borderColor }]}>
@@ -465,12 +564,14 @@ export default function Dashboard() {
               >
                 <Ionicons name="pulse-outline" size={14} color={riskAppsForInsight > 0 ? colors.warning : colors.success} />
                 <Text style={[styles.insightText, { color: textMain }]}>
-                  {riskAppsForInsight} applications are at risk
+                  {formatStat(riskAppsForInsight)} {riskAppsForInsight === 1 ? 'application is' : 'applications are'} at risk
                 </Text>
               </View>
               <View style={[styles.insightPill, { backgroundColor: kpiTone(isDark, unreadCount > 0 ? 'blue' : 'green').bg }]}>
                 <Ionicons name="notifications-outline" size={14} color={unreadCount > 0 ? colors.fdaBlue : colors.success} />
-                <Text style={[styles.insightText, { color: textMain }]}>{unreadCount} unread alerts waiting</Text>
+                <Text style={[styles.insightText, { color: textMain }]}>
+                  {formatStat(unreadCount)} unread {unreadCount === 1 ? 'alert' : 'alerts'}
+                </Text>
               </View>
             </View>
             {lastSyncedAt ? (
@@ -525,10 +626,66 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     borderTopWidth: 1,
   },
-  heroStatCell: { flex: 1, alignItems: 'center' },
-  heroStatDivider: { width: 1, height: 36 },
-  heroMiniValue: { fontSize: 22, fontWeight: '900' },
+  heroStatCell: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    borderRadius: radius.md,
+    minHeight: 80,
+  },
+  heroStatDivider: { width: 1, height: 52, alignSelf: 'center' },
+  heroMiniValue: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
   heroMiniLabel: { fontSize: 11, fontWeight: '700', marginTop: 4 },
+  heroMiniHint: { fontSize: 9.5, fontWeight: '600', marginTop: 2, textAlign: 'center' },
+  workloadCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    ...shadow.soft,
+  },
+  workloadTop: { marginBottom: spacing.sm },
+  workloadTitle: { fontSize: 15, fontWeight: '900' },
+  workloadSub: { fontSize: 11.5, fontWeight: '600', marginTop: 4, lineHeight: 16 },
+  workloadRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
+  workloadCell: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: radius.md,
+    minWidth: 0,
+  },
+  workloadValue: { fontSize: 22, fontWeight: '900', letterSpacing: -0.4 },
+  workloadLabel: { fontSize: 10, fontWeight: '800', marginTop: 6, textAlign: 'center', letterSpacing: 0.2 },
+  workloadSectionLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  workloadGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  workloadMini: {
+    width: '31%',
+    minWidth: '28%',
+    flexGrow: 1,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  workloadDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  workloadMiniValue: { fontSize: 17, fontWeight: '900', letterSpacing: -0.3 },
+  workloadMiniLabel: { fontSize: 9.5, fontWeight: '700', marginTop: 4, textAlign: 'center' },
   quickRow: { flexDirection: 'row', gap: spacing.sm },
   quickBtn: {
     flex: 1,
@@ -554,8 +711,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 8,
   },
-  kpiValue: { fontSize: 19, fontWeight: '900' },
-  kpiLabel: { marginTop: 2, fontSize: 12, fontWeight: '600' },
+  kpiValue: { fontSize: 22, fontWeight: '900', letterSpacing: -0.4 },
+  kpiLabel: { marginTop: 4, fontSize: 11.5, fontWeight: '700' },
   sectionCard: {
     borderRadius: radius.lg,
     borderWidth: 1,

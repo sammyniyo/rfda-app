@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
 import { AuthProvider } from '../context/AuthContext';
+import { PreviewWebNoticeProvider } from '../context/PreviewWebNoticeContext';
 import { ThemeProvider, useThemeMode } from '../context/ThemeContext';
 
 const PushNotificationsProvider =
@@ -25,12 +26,14 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
-        <AuthProvider>
-          <PushNotificationsProvider>
-            <ThemeAwareStatus />
-            <RootNavigator />
-          </PushNotificationsProvider>
-        </AuthProvider>
+        <PreviewWebNoticeProvider>
+          <AuthProvider>
+            <PushNotificationsProvider>
+              <ThemeAwareStatus />
+              <RootNavigator />
+            </PushNotificationsProvider>
+          </AuthProvider>
+        </PreviewWebNoticeProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );

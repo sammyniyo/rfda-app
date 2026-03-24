@@ -282,7 +282,7 @@ export default function Profile() {
                   onPress={async () => {
                     await hapticSuccess();
                     await logout();
-                    router.replace("/");
+                    // Navigation is handled by (app)/_layout when token clears — avoids double redirect loops.
                   }}
                 >
                   <Ionicons
