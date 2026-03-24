@@ -1,7 +1,31 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { api } from '../constants/api';
 import { NOTIFICATION_DISMISSED_STORAGE_KEY } from '../lib/notificationsFeed';
+
+/** Best-effort: tell PHP to expire the row in `tbl_api_tokens` (Bearer + JSON body per logout_api.php). */
+async function invalidateTokenOnServer(tokenValue) {
+  const t = String(tokenValue || '').trim();
+  if (!t) return;
+  const body = JSON.stringify({ token: t });
+  const post = (headers) =>
+    fetch(api.logout, { method: 'POST', headers, body }).catch(() => null);
+  try {
+    let res = await post({
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${t}`,
+    });
+    if (res && !res.ok && (res.status === 401 || res.status === 403)) {
+      await post({
+        'Content-Type': 'application/json',
+        Authorization: t,
+      });
+    }
+  } catch {
+    // Offline or network error — local logout still proceeds.
+  }
+}
 
 const AuthContext = createContext(null);
 
@@ -33,7 +57,7 @@ export function AuthProvider({ children }) {
   const tokenRef = React.useRef(token);
   tokenRef.current = token;
 
-  const setToken = async (newToken, newUser) => {
+  const setToken = useCallback(async (newToken, newUser) => {
     setTokenState(newToken);
     setUser(newUser || null);
     if (newToken) {
@@ -46,7 +70,7 @@ export function AuthProvider({ children }) {
       await SecureStore.deleteItemAsync(USER_KEY);
       await SecureStore.deleteItemAsync(BIOMETRIC_EMAIL_KEY);
     }
-  };
+  }, []);
 
   /** Merge fields into the current user (e.g. `data.staff` from performance_api) and persist. */
   const updateUser = useCallback(async (patch) => {
@@ -62,9 +86,11 @@ export function AuthProvider({ children }) {
     });
   }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
+    const sessionToken = tokenRef.current && String(tokenRef.current).trim();
     SKIP_NEXT_RESTORE = true;
-    // Important: delete persisted token first.
+    await invalidateTokenOnServer(sessionToken);
+    // Important: delete persisted token soon after server invalidation attempt.
     // Otherwise expo-router redirects can remount AuthProvider and temporarily restore
     // the old token from SecureStore, causing redirect/update loops.
     await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
@@ -75,36 +101,36 @@ export function AuthProvider({ children }) {
     setTokenState(null);
     setUser(null);
     setLoading(false);
-  };
+  }, []);
 
-  const enableBiometricEmail = async (email) => {
+  const enableBiometricEmail = useCallback(async (email) => {
     if (email) await SecureStore.setItemAsync(BIOMETRIC_EMAIL_KEY, email);
-  };
+  }, []);
 
-  const getStoredToken = async () => {
+  const getStoredToken = useCallback(async () => {
     try {
       return await SecureStore.getItemAsync(TOKEN_KEY);
     } catch {
       return null;
     }
-  };
+  }, []);
 
-  const getStoredUser = async () => {
+  const getStoredUser = useCallback(async () => {
     try {
       const raw = await SecureStore.getItemAsync(USER_KEY);
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
     }
-  };
+  }, []);
 
-  const getBiometricEmail = async () => {
+  const getBiometricEmail = useCallback(async () => {
     try {
       return await SecureStore.getItemAsync(BIOMETRIC_EMAIL_KEY);
     } catch {
       return null;
     }
-  };
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -123,24 +149,34 @@ export function AuthProvider({ children }) {
     })();
   }, []);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        token,
-        user,
-        loading,
-        setToken,
-        updateUser,
-        logout,
-        enableBiometricEmail,
-        getStoredToken,
-        getStoredUser,
-        getBiometricEmail,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      token,
+      user,
+      loading,
+      setToken,
+      updateUser,
+      logout,
+      enableBiometricEmail,
+      getStoredToken,
+      getStoredUser,
+      getBiometricEmail,
+    }),
+    [
+      token,
+      user,
+      loading,
+      setToken,
+      updateUser,
+      logout,
+      enableBiometricEmail,
+      getStoredToken,
+      getStoredUser,
+      getBiometricEmail,
+    ]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

@@ -2,22 +2,21 @@ import React from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import Constants from 'expo-constants';
 import { AuthProvider } from '../context/AuthContext';
 import { PreviewWebNoticeProvider } from '../context/PreviewWebNoticeContext';
 import { ThemeProvider, useThemeMode } from '../context/ThemeContext';
+import PushNotificationsProvider from '../components/PushNotificationsProvider';
 
-const PushNotificationsProvider =
-  Constants.appOwnership === 'expo'
-    ? ({ children }) => children
-    : require('../components/PushNotificationsProvider').default;
+/** Stable refs — inline `{ headerShown: false }` creates a new object every render and can trigger
+ *  React Navigation / expo-router layout effects + useSyncState in an infinite update loop. */
+const ROOT_STACK_SCREEN_OPTIONS = { headerShown: false };
 
 function RootNavigator() {
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={ROOT_STACK_SCREEN_OPTIONS}>
       <Stack.Screen name="index" />
-      <Stack.Screen name="(app)" options={{ headerShown: false }} />
-      <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
+      <Stack.Screen name="(app)" options={ROOT_STACK_SCREEN_OPTIONS} />
+      <Stack.Screen name="forgot-password" options={ROOT_STACK_SCREEN_OPTIONS} />
     </Stack>
   );
 }

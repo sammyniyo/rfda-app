@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useQuery } from '../../hooks/useQuery';
 import { getAuthHeaders, isApiSuccess } from '../../lib/api';
 import { api } from '../../constants/api';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import AuthLoadingScreen from '../../components/AuthLoadingScreen';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchMonitoringPerformance, extractPerformanceTasks } from '../../lib/monitoringPerformance';
@@ -243,14 +243,19 @@ export default function AppLayout() {
   const { isDark, resolvedTheme } = useThemeMode();
   const { token, loading } = useAuth();
   const router = useRouter();
+  /** `useRouter()` identity is often unstable; never put `router` in effect deps or replace('/') loops forever. */
+  const hasSentToRootRef = useRef(false);
 
   useEffect(() => {
     if (loading) return;
-    if (!token) {
-      // Avoid <Redirect /> here — expo-router 6 can re-run focus effects and loop with maximum update depth.
-      router.replace('/');
+    if (token) {
+      hasSentToRootRef.current = false;
+      return;
     }
-  }, [loading, token, router]);
+    if (hasSentToRootRef.current) return;
+    hasSentToRootRef.current = true;
+    router.replace('/');
+  }, [loading, token]);
 
   if (loading) {
     return <AuthLoadingScreen message="Restoring your session…" />;

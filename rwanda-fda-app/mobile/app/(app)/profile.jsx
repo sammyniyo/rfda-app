@@ -37,24 +37,24 @@ function initials(name) {
     .toUpperCase();
 }
 
-function DetailRow({ label, value }) {
+function DetailRow({ label, value, textSubtle, textMain, borderColor }) {
   return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value || "—"}</Text>
+    <View style={[styles.detailRow, { borderTopColor: borderColor }]}>
+      <Text style={[styles.detailLabel, { color: textSubtle }]}>{label}</Text>
+      <Text style={[styles.detailValue, { color: textMain }]}>{value || "—"}</Text>
     </View>
   );
 }
 
-function InfoRow({ icon, label, value }) {
+function InfoRow({ icon, label, value, textSubtle, textMain, borderColor, iconBg, iconBorder }) {
   return (
-    <View style={styles.infoRow}>
-      <View style={styles.infoIcon}>
+    <View style={[styles.infoRow, { borderTopColor: borderColor }]}>
+      <View style={[styles.infoIcon, { backgroundColor: iconBg, borderColor: iconBorder }]}>
         <Ionicons name={icon} size={16} color={colors.fdaGreen} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={styles.infoLabel}>{label}</Text>
-        <Text style={styles.infoValue} numberOfLines={2}>
+        <Text style={[styles.infoLabel, { color: textSubtle }]}>{label}</Text>
+        <Text style={[styles.infoValue, { color: textMain }]} numberOfLines={2}>
           {value || "—"}
         </Text>
       </View>
@@ -62,28 +62,32 @@ function InfoRow({ icon, label, value }) {
   );
 }
 
-function PersonHierarchyCard({ title, person, tone = "manager" }) {
+function PersonHierarchyCard({ title, person, tone = "manager", isDark, textMain, textMuted, textSubtle }) {
   if (!person) return null;
   const isManager = tone === "manager";
+  const cardSurface = isManager
+    ? isDark
+      ? { backgroundColor: "rgba(33,77,134,0.28)", borderColor: "rgba(96,165,250,0.22)" }
+      : { backgroundColor: "#f6fbff", borderColor: "#dfeafb" }
+    : isDark
+      ? { backgroundColor: "rgba(15,94,71,0.22)", borderColor: "rgba(52,211,153,0.2)" }
+      : { backgroundColor: "#fbfffd", borderColor: "#d7efe0" };
+  const avBg = isManager
+    ? isDark
+      ? { backgroundColor: "rgba(33,77,134,0.5)" }
+      : { backgroundColor: "#e8f0ff" }
+    : isDark
+      ? { backgroundColor: "rgba(15,94,71,0.45)" }
+      : { backgroundColor: "#e7faf0" };
   return (
-    <View
-      style={[
-        styles.hPersonCard,
-        isManager ? styles.hPersonCardManager : styles.hPersonCardReport,
-      ]}
-    >
-      <View
-        style={[
-          styles.hAvatar,
-          isManager ? styles.hAvatarManager : styles.hAvatarReport,
-        ]}
-      >
-        <Text style={styles.hAvatarText}>{initials(person.name)}</Text>
+    <View style={[styles.hPersonCard, cardSurface]}>
+      <View style={[styles.hAvatar, avBg]}>
+        <Text style={[styles.hAvatarText, { color: textMain }]}>{initials(person.name)}</Text>
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={styles.hTitle}>{title}</Text>
-        <Text style={styles.hName}>{person.name || "Unknown"}</Text>
-        <Text style={styles.hMeta} numberOfLines={1}>
+        <Text style={[styles.hTitle, { color: textSubtle }]}>{title}</Text>
+        <Text style={[styles.hName, { color: textMain }]}>{person.name || "Unknown"}</Text>
+        <Text style={[styles.hMeta, { color: textMuted }]} numberOfLines={1}>
           {[
             person.department,
             person.staff_group,
@@ -93,7 +97,7 @@ function PersonHierarchyCard({ title, person, tone = "manager" }) {
             .join(" • ") || "Rwanda FDA"}
         </Text>
         {person.email ? (
-          <Text style={styles.hMeta} numberOfLines={1}>
+          <Text style={[styles.hMeta, { color: textMuted }]} numberOfLines={1}>
             {person.email}
           </Text>
         ) : null}
@@ -102,32 +106,37 @@ function PersonHierarchyCard({ title, person, tone = "manager" }) {
   );
 }
 
-function TeamMemberCard({ member }) {
+function TeamMemberCard({ member, cardBg, cardSoft, borderColor, textMain, textMuted, textSubtle, isDark }) {
   return (
-    <View style={styles.teamCard}>
+    <View style={[styles.teamCard, { backgroundColor: cardSoft, borderColor }]}>
       <View style={styles.teamCardTop}>
-        <View style={styles.teamAvatar}>
+        <View
+          style={[
+            styles.teamAvatar,
+            { backgroundColor: isDark ? "rgba(30,41,59,0.95)" : "#eef6f4" },
+          ]}
+        >
           <Text style={styles.teamAvatarText}>{initials(member.name)}</Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.teamName} numberOfLines={1}>
+          <Text style={[styles.teamName, { color: textMain }]} numberOfLines={1}>
             {member.name}
           </Text>
-          <Text style={styles.teamMeta} numberOfLines={1}>
+          <Text style={[styles.teamMeta, { color: textMuted }]} numberOfLines={1}>
             {member.department || "Rwanda FDA"}
           </Text>
         </View>
       </View>
       <View style={styles.teamStatsRow}>
-        <View style={styles.teamStat}>
-          <Text style={styles.teamStatValue}>{member.pending_tasks ?? 0}</Text>
-          <Text style={styles.teamStatLabel}>Open Tasks</Text>
+        <View style={[styles.teamStat, { backgroundColor: cardBg, borderColor }]}>
+          <Text style={[styles.teamStatValue, { color: textMain }]}>{member.pending_tasks ?? 0}</Text>
+          <Text style={[styles.teamStatLabel, { color: textSubtle }]}>Open Tasks</Text>
         </View>
-        <View style={styles.teamStat}>
-          <Text style={styles.teamStatValue}>
+        <View style={[styles.teamStat, { backgroundColor: cardBg, borderColor }]}>
+          <Text style={[styles.teamStatValue, { color: textMain }]}>
             {member.total_applications ?? 0}
           </Text>
-          <Text style={styles.teamStatLabel}>Apps</Text>
+          <Text style={[styles.teamStatLabel, { color: textSubtle }]}>Apps</Text>
         </View>
       </View>
     </View>
@@ -137,6 +146,29 @@ function TeamMemberCard({ member }) {
 export default function Profile() {
   const { token, user, loading: authLoading, logout } = useAuth();
   const { isDark } = useThemeMode();
+  const pageBg = isDark ? "#0b1220" : colors.background;
+  const cardBg = isDark ? "#111827" : colors.card;
+  const cardSoft = isDark ? "#1e293b" : colors.cardSoft;
+  const borderColor = isDark ? "rgba(148,163,184,0.2)" : colors.border;
+  const textMain = isDark ? "#f8fafc" : colors.text;
+  const textMuted = isDark ? "#94a3b8" : colors.textMuted;
+  const textSubtle = isDark ? "#64748b" : colors.textSubtle;
+  const iconBg = isDark ? "rgba(15,94,71,0.22)" : "#e7faf0";
+  const iconBorder = isDark ? "rgba(52,211,153,0.18)" : "rgba(15,94,71,0.12)";
+  const heroBorder = isDark ? borderColor : colors.border;
+  const logoWrapBg = isDark ? "rgba(15,23,42,0.92)" : "#fff";
+  const pillSurface = isDark ? "rgba(15,94,71,0.28)" : "#e7faf0";
+  const pillBorder = isDark ? "rgba(52,211,153,0.22)" : "rgba(15,94,71,0.12)";
+  const actionPillBg = isDark ? "#1e293b" : "#fff";
+  const statApps = isDark
+    ? { backgroundColor: "rgba(33,77,134,0.35)", borderColor: "rgba(96,165,250,0.28)" }
+    : { backgroundColor: "#e8f0ff", borderColor: "rgba(33,77,134,0.14)" };
+  const statTasks = isDark
+    ? { backgroundColor: "rgba(15,94,71,0.3)", borderColor: "rgba(52,211,153,0.25)" }
+    : { backgroundColor: "#e7faf0", borderColor: "rgba(15,94,71,0.14)" };
+  const statNotif = isDark
+    ? { backgroundColor: "rgba(217,119,6,0.22)", borderColor: "rgba(251,191,36,0.3)" }
+    : { backgroundColor: "#fff6ea", borderColor: "rgba(217,119,6,0.14)" };
   const [refreshing, setRefreshing] = useState(false);
 
   const tasksQuery = useQuery(
@@ -182,15 +214,15 @@ export default function Profile() {
 
   if (authLoading && !profile) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.stateText}>Loading profile…</Text>
+      <View style={[styles.centered, { backgroundColor: pageBg }]}>
+        <Text style={[styles.stateText, { color: textMuted }]}>Loading profile…</Text>
       </View>
     );
   }
   if (!profile) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.stateText}>Profile not available.</Text>
+      <View style={[styles.centered, { backgroundColor: pageBg }]}>
+        <Text style={[styles.stateText, { color: textMuted }]}>Profile not available.</Text>
       </View>
     );
   }
@@ -227,13 +259,19 @@ export default function Profile() {
     }
   };
 
+  const infoProps = {
+    textSubtle,
+    textMain,
+    borderColor,
+    iconBg,
+    iconBorder,
+  };
+  const detailProps = { textSubtle, textMain, borderColor };
+
   return (
-    <SafeAreaView
-      style={[styles.safeArea, isDark && styles.safeAreaDark]}
-      edges={["top", "left", "right"]}
-    >
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: pageBg }]} edges={["top", "left", "right"]}>
       <ScrollView
-        style={[styles.container, isDark && styles.containerDark]}
+        style={[styles.container, { backgroundColor: pageBg }]}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -245,13 +283,25 @@ export default function Profile() {
         }
       >
         <FadeInView delay={0} translateY={14}>
-          <LinearGradient
-            colors={["#ffffff", "#f8fbff", "#effaf4"]}
-            style={styles.heroCard}
-          >
+          <View style={[styles.heroCard, { borderColor: heroBorder }]}>
+            <LinearGradient
+              colors={isDark ? ["#111827", "#0b1220", "#0f172a"] : ["#ffffff", "#f8fbff", "#effaf4"]}
+              locations={[0, 0.45, 1]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={isDark ? ["transparent", "rgba(15,94,71,0.12)"] : ["transparent", "rgba(15,94,71,0.05)"]}
+              start={{ x: 0.4, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
+            <View style={styles.heroCardInner}>
             <View style={styles.heroHeaderRow}>
               <View style={styles.brandRow}>
-                <View style={styles.brandLogoWrap}>
+                <View style={[styles.brandLogoWrap, { backgroundColor: logoWrapBg, borderColor }]}>
                   <Image
                     source={require("../../assets/RwandaFDA.png")}
                     style={styles.brandLogo}
@@ -259,30 +309,29 @@ export default function Profile() {
                   />
                 </View>
                 <View>
-                  <Text style={styles.brandTitle}>Profile</Text>
-                  <Text style={styles.brandSub} numberOfLines={1}>
+                  <Text style={[styles.brandTitle, { color: textMain }]}>Profile</Text>
+                  <Text style={[styles.brandSub, { color: textMuted }]} numberOfLines={1}>
                     {profile.dutyStation || profile.department || "Rwanda FDA"}
                   </Text>
                 </View>
               </View>
               <View style={styles.heroActionsRow}>
                 <PressableScale
-                  style={styles.iconPill}
+                  style={[styles.iconPill, { backgroundColor: actionPillBg, borderColor }]}
                   onPress={() => router.push("/(app)/settings")}
                 >
                   <Ionicons
                     name="settings-outline"
                     size={17}
-                    color={colors.text}
+                    color={textMain}
                   />
                 </PressableScale>
                 <PressableScale
-                  style={styles.signOutIconBtn}
+                  style={[styles.signOutIconBtn, { backgroundColor: actionPillBg, borderColor }]}
                   hapticType="medium"
                   onPress={async () => {
                     await hapticSuccess();
                     await logout();
-                    // Navigation is handled by (app)/_layout when token clears — avoids double redirect loops.
                   }}
                 >
                   <Ionicons
@@ -295,7 +344,7 @@ export default function Profile() {
             </View>
 
             <View style={styles.heroTopRow}>
-              <View style={styles.avatarShell}>
+              <View style={[styles.avatarShell, { backgroundColor: isDark ? "rgba(15,94,71,0.2)" : "#eef6f4" }]}>
                 <LinearGradient
                   colors={[colors.fdaGreen, colors.teal]}
                   style={styles.avatar}
@@ -306,67 +355,44 @@ export default function Profile() {
                 </LinearGradient>
               </View>
               <View style={styles.heroTextWrap}>
-                <Text style={styles.nameText} numberOfLines={2}>
+                <Text style={[styles.nameText, { color: textMain }]} numberOfLines={2}>
                   {profile.name || "RFDA Staff"}
                 </Text>
-                <Text style={styles.roleText} numberOfLines={1}>
+                <Text style={[styles.roleText, { color: textMuted }]} numberOfLines={1}>
                   {profile.position ||
                     profile.staff_position ||
                     profile.role ||
                     "Staff member"}
                 </Text>
-                <Text style={styles.smallSubText} numberOfLines={1}>
+                <Text style={[styles.smallSubText, { color: textSubtle }]} numberOfLines={1}>
                   {profile.email || "No work email"}
                 </Text>
               </View>
             </View>
 
             <View style={styles.statsCardsRow}>
-              <View
-                style={[
-                  styles.statCard,
-                  {
-                    backgroundColor: "#e8f0ff",
-                    borderColor: "rgba(33,77,134,0.14)",
-                  },
-                ]}
-              >
-                <Text style={styles.statValue}>{appList.length}</Text>
-                <Text style={styles.statLabel}>Applications</Text>
+              <View style={[styles.statCard, statApps]}>
+                <Text style={[styles.statValue, { color: textMain }]}>{appList.length}</Text>
+                <Text style={[styles.statLabel, { color: textMuted }]}>Applications</Text>
               </View>
-              <View
-                style={[
-                  styles.statCard,
-                  {
-                    backgroundColor: "#e7faf0",
-                    borderColor: "rgba(15,94,71,0.14)",
-                  },
-                ]}
-              >
-                <Text style={styles.statValue}>{pendingTasks}</Text>
-                <Text style={styles.statLabel}>Open tasks</Text>
+              <View style={[styles.statCard, statTasks]}>
+                <Text style={[styles.statValue, { color: textMain }]}>{pendingTasks}</Text>
+                <Text style={[styles.statLabel, { color: textMuted }]}>Open tasks</Text>
               </View>
-              <View
-                style={[
-                  styles.statCard,
-                  {
-                    backgroundColor: "#fff6ea",
-                    borderColor: "rgba(217,119,6,0.14)",
-                  },
-                ]}
-              >
-                <Text style={styles.statValue}>{unreadNotifications}</Text>
-                <Text style={styles.statLabel}>Unread</Text>
+              <View style={[styles.statCard, statNotif]}>
+                <Text style={[styles.statValue, { color: textMain }]}>{unreadNotifications}</Text>
+                <Text style={[styles.statLabel, { color: textMuted }]}>Unread</Text>
               </View>
             </View>
-          </LinearGradient>
+            </View>
+          </View>
         </FadeInView>
 
         <FadeInView delay={90} translateY={10}>
-          <View style={styles.panel}>
+          <View style={[styles.panel, { backgroundColor: cardBg, borderColor }]}>
             <View style={styles.panelHeaderRow}>
-              <Text style={styles.panelTitle}>My details</Text>
-              <View style={styles.panelChip}>
+              <Text style={[styles.panelTitle, { color: textMain }]}>My details</Text>
+              <View style={[styles.panelChip, { backgroundColor: pillSurface, borderColor: pillBorder }]}>
                 <Ionicons
                   name="shield-checkmark-outline"
                   size={14}
@@ -375,32 +401,25 @@ export default function Profile() {
                 <Text style={styles.panelChipText}>Verified</Text>
               </View>
             </View>
-            <InfoRow
-              icon="mail-outline"
-              label="Work email"
-              value={profile.email}
-            />
-            <InfoRow icon="call-outline" label="Phone" value={profile.phone} />
+            <InfoRow icon="mail-outline" label="Work email" value={profile.email} {...infoProps} />
+            <InfoRow icon="call-outline" label="Phone" value={profile.phone} {...infoProps} />
             <InfoRow
               icon="business-outline"
               label="Duty station"
               value={profile.dutyStation || profile.department}
+              {...infoProps}
             />
-            <InfoRow
-              icon="people-outline"
-              label="Staff group"
-              value={profile.group}
-            />
+            <InfoRow icon="people-outline" label="Staff group" value={profile.group} {...infoProps} />
           </View>
         </FadeInView>
 
         <FadeInView delay={160} translateY={10}>
-          <View style={styles.panel}>
-            <DetailRow label="Personal email" value={profile.personal_email} />
-            <Text style={[styles.panelTitle, { marginTop: spacing.md }]}>
+          <View style={[styles.panel, { backgroundColor: cardBg, borderColor }]}>
+            <DetailRow label="Personal email" value={profile.personal_email} {...detailProps} />
+            <Text style={[styles.panelTitle, { marginTop: spacing.md, color: textMain }]}>
               More
             </Text>
-            <DetailRow label="Degree" value={profile.degree} />
+            <DetailRow label="Degree" value={profile.degree} {...detailProps} />
             <DetailRow
               label="Hire date"
               value={
@@ -408,37 +427,38 @@ export default function Profile() {
                   ? new Date(profile.hireDate).toLocaleDateString()
                   : null
               }
+              {...detailProps}
             />
           </View>
         </FadeInView>
 
         <FadeInView delay={220} translateY={10}>
-          <View style={styles.panel}>
-            <Text style={styles.panelTitle}>My snapshot</Text>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Completed tasks</Text>
-              <Text style={styles.metricValue}>{completedTasks}</Text>
+          <View style={[styles.panel, { backgroundColor: cardBg, borderColor }]}>
+            <Text style={[styles.panelTitle, { color: textMain }]}>My snapshot</Text>
+            <View style={[styles.metricRow, { borderTopColor: borderColor }]}>
+              <Text style={[styles.metricLabel, { color: textMuted }]}>Completed tasks</Text>
+              <Text style={[styles.metricValue, { color: textMain }]}>{completedTasks}</Text>
             </View>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Open tasks</Text>
-              <Text style={styles.metricValue}>{pendingTasks}</Text>
+            <View style={[styles.metricRow, { borderTopColor: borderColor }]}>
+              <Text style={[styles.metricLabel, { color: textMuted }]}>Open tasks</Text>
+              <Text style={[styles.metricValue, { color: textMain }]}>{pendingTasks}</Text>
             </View>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Applications in my queue</Text>
-              <Text style={styles.metricValue}>{appList.length}</Text>
+            <View style={[styles.metricRow, { borderTopColor: borderColor }]}>
+              <Text style={[styles.metricLabel, { color: textMuted }]}>Applications in my queue</Text>
+              <Text style={[styles.metricValue, { color: textMain }]}>{appList.length}</Text>
             </View>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Unread notifications</Text>
-              <Text style={styles.metricValue}>{unreadNotifications}</Text>
+            <View style={[styles.metricRow, { borderTopColor: borderColor }]}>
+              <Text style={[styles.metricLabel, { color: textMuted }]}>Unread notifications</Text>
+              <Text style={[styles.metricValue, { color: textMain }]}>{unreadNotifications}</Text>
             </View>
           </View>
         </FadeInView>
 
         <FadeInView delay={260} translateY={10}>
-          <View style={styles.panel}>
+          <View style={[styles.panel, { backgroundColor: cardBg, borderColor }]}>
             <View style={styles.panelHeaderRow}>
-              <Text style={styles.panelTitle}>Staff hierarchy</Text>
-              <Text style={styles.hintRightText}>
+              <Text style={[styles.panelTitle, { color: textMain }]}>Staff hierarchy</Text>
+              <Text style={[styles.hintRightText, { color: textMuted }]}>
                 {directReports.length} reports
               </Text>
             </View>
@@ -448,23 +468,35 @@ export default function Profile() {
                 title="Reports To"
                 person={profile.reports_to}
                 tone="manager"
+                isDark={isDark}
+                textMain={textMain}
+                textMuted={textMuted}
+                textSubtle={textSubtle}
               />
             ) : (
-              <View style={styles.hEmptyCard}>
-                <Text style={styles.hEmptyText}>No manager found.</Text>
+              <View style={[styles.hEmptyCard, { backgroundColor: cardSoft, borderColor }]}>
+                <Text style={[styles.hEmptyText, { color: textMuted }]}>No manager found.</Text>
               </View>
             )}
 
             <View style={styles.directReportsHeader}>
-              <Text style={styles.directReportsTitle}>Direct reports</Text>
-              <Text style={styles.directReportsCount}>
+              <Text style={[styles.directReportsTitle, { color: textMain }]}>Direct reports</Text>
+              <Text
+                style={[
+                  styles.directReportsCount,
+                  {
+                    color: colors.fdaGreen,
+                    backgroundColor: isDark ? "rgba(15,94,71,0.35)" : colors.fdaGreenSoft,
+                  },
+                ]}
+              >
                 {directReports.length}
               </Text>
             </View>
 
             {directReports.length === 0 ? (
-              <View style={styles.hEmptyCard}>
-                <Text style={styles.hEmptyText}>
+              <View style={[styles.hEmptyCard, { backgroundColor: cardSoft, borderColor }]}>
+                <Text style={[styles.hEmptyText, { color: textMuted }]}>
                   No staff currently reporting to you.
                 </Text>
               </View>
@@ -475,6 +507,13 @@ export default function Profile() {
                   <TeamMemberCard
                     key={member.staff_id || member.user_id || member.email}
                     member={member}
+                    cardBg={cardBg}
+                    cardSoft={cardSoft}
+                    borderColor={borderColor}
+                    textMain={textMain}
+                    textMuted={textMuted}
+                    textSubtle={textSubtle}
+                    isDark={isDark}
                   />
                 ))
             )}
@@ -486,25 +525,22 @@ export default function Profile() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.background },
-  safeAreaDark: { backgroundColor: "#0b1220" },
-  container: { flex: 1, backgroundColor: colors.background },
-  containerDark: { backgroundColor: "#0b1220" },
+  safeArea: { flex: 1 },
+  container: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: 112, gap: spacing.md },
   centered: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: colors.background,
   },
-  stateText: { color: colors.textMuted },
+  stateText: { fontSize: 15, fontWeight: "600" },
   heroCard: {
     borderRadius: radius.xl,
-    padding: spacing.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    overflow: "hidden",
     ...shadow.card,
   },
+  heroCardInner: { padding: spacing.md, zIndex: 1 },
   heroHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -516,24 +552,20 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 14,
-    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
     ...shadow.soft,
   },
   brandLogo: { width: 30, height: 24 },
-  brandTitle: { color: colors.text, fontSize: 14, fontWeight: "900" },
-  brandSub: { color: colors.textMuted, fontSize: 11.5, marginTop: 2 },
+  brandTitle: { fontSize: 14, fontWeight: "900" },
+  brandSub: { fontSize: 11.5, marginTop: 2 },
   heroActionsRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   iconPill: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -541,9 +573,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -551,7 +581,6 @@ const styles = StyleSheet.create({
   avatarShell: {
     borderRadius: radius.lg,
     padding: 3,
-    backgroundColor: "#eef6f4",
   },
   avatar: {
     width: 76,
@@ -562,15 +591,13 @@ const styles = StyleSheet.create({
   },
   avatarText: { color: "#fff", fontSize: 24, fontWeight: "800" },
   heroTextWrap: { flex: 1 },
-  nameText: { color: colors.text, fontSize: 18, fontWeight: "900" },
+  nameText: { fontSize: 18, fontWeight: "900" },
   roleText: {
-    color: colors.textMuted,
     fontSize: 12,
     marginTop: 4,
     fontWeight: "700",
   },
   smallSubText: {
-    color: colors.textSubtle,
     fontSize: 11.5,
     marginTop: 4,
     fontWeight: "600",
@@ -589,18 +616,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  statValue: { color: colors.text, fontSize: 18, fontWeight: "800" },
+  statValue: { fontSize: 18, fontWeight: "800" },
   statLabel: {
-    color: colors.textMuted,
     fontSize: 11,
     marginTop: 3,
     textAlign: "center",
   },
   panel: {
-    backgroundColor: colors.card,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
     padding: spacing.md,
     ...shadow.soft,
   },
@@ -611,7 +635,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginBottom: spacing.sm,
   },
-  panelTitle: { color: colors.text, fontSize: 16, fontWeight: "900" },
+  panelTitle: { fontSize: 16, fontWeight: "900" },
   panelSub: {
     color: colors.textMuted,
     fontSize: 12,
@@ -622,36 +646,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#e7faf0",
     borderWidth: 1,
-    borderColor: "rgba(15,94,71,0.12)",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: radius.pill,
   },
   panelChipText: { color: colors.fdaGreen, fontWeight: "900", fontSize: 11 },
-  hintRightText: { color: colors.textMuted, fontSize: 12, fontWeight: "800" },
+  hintRightText: { fontSize: 12, fontWeight: "800" },
   infoRow: {
     flexDirection: "row",
     gap: 10,
     alignItems: "center",
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
   },
   infoIcon: {
     width: 34,
     height: 34,
     borderRadius: 12,
-    backgroundColor: "#e7faf0",
     borderWidth: 1,
-    borderColor: "rgba(15,94,71,0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
-  infoLabel: { color: colors.textSubtle, fontSize: 11, fontWeight: "800" },
+  infoLabel: { fontSize: 11, fontWeight: "800" },
   infoValue: {
-    color: colors.text,
     fontSize: 13.5,
     fontWeight: "700",
     marginTop: 2,
@@ -664,8 +682,6 @@ const styles = StyleSheet.create({
     padding: spacing.sm + 2,
     alignItems: "center",
   },
-  hPersonCardManager: { backgroundColor: "#f6fbff", borderColor: "#dfeafb" },
-  hPersonCardReport: { backgroundColor: "#fbfffd", borderColor: "#d7efe0" },
   hAvatar: {
     width: 40,
     height: 40,
@@ -673,12 +689,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  hAvatarManager: { backgroundColor: "#e8f0ff" },
-  hAvatarReport: { backgroundColor: "#e7faf0" },
-  hAvatarText: { color: colors.text, fontWeight: "800" },
-  hTitle: { color: colors.textSubtle, fontSize: 11, fontWeight: "700" },
-  hName: { color: colors.text, fontSize: 14, fontWeight: "800", marginTop: 2 },
-  hMeta: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  hAvatarText: { fontWeight: "800" },
+  hTitle: { fontSize: 11, fontWeight: "700" },
+  hName: { fontSize: 14, fontWeight: "800", marginTop: 2 },
+  hMeta: { fontSize: 11, marginTop: 2 },
   hConnector: { alignItems: "center", paddingVertical: 8 },
   hLine: { width: 2, height: 10, backgroundColor: colors.border },
   hNode: {
@@ -696,10 +710,8 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     marginBottom: 8,
   },
-  directReportsTitle: { color: colors.text, fontWeight: "800", fontSize: 14 },
+  directReportsTitle: { fontWeight: "800", fontSize: 14 },
   directReportsCount: {
-    color: colors.fdaGreen,
-    backgroundColor: colors.fdaGreenSoft,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: radius.pill,
@@ -710,16 +722,12 @@ const styles = StyleSheet.create({
   hEmptyCard: {
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.cardSoft,
     padding: spacing.sm + 2,
   },
-  hEmptyText: { color: colors.textMuted, fontSize: 12 },
+  hEmptyText: { fontSize: 12 },
   teamCard: {
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.cardSoft,
     padding: spacing.sm + 2,
     marginTop: 8,
   },
@@ -728,45 +736,39 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 12,
-    backgroundColor: "#eef6f4",
     alignItems: "center",
     justifyContent: "center",
   },
   teamAvatarText: { color: colors.fdaGreen, fontWeight: "800", fontSize: 12 },
-  teamName: { color: colors.text, fontWeight: "700", fontSize: 13 },
-  teamMeta: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  teamName: { fontWeight: "700", fontSize: 13 },
+  teamMeta: { fontSize: 11, marginTop: 2 },
   teamStatsRow: { flexDirection: "row", gap: spacing.sm, marginTop: 8 },
   teamStat: {
     flex: 1,
     borderRadius: 12,
-    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: colors.border,
     paddingVertical: 8,
     alignItems: "center",
   },
-  teamStatValue: { color: colors.text, fontWeight: "800", fontSize: 14 },
-  teamStatLabel: { color: colors.textSubtle, fontSize: 10, marginTop: 2 },
+  teamStatValue: { fontWeight: "800", fontSize: 14 },
+  teamStatLabel: { fontSize: 10, marginTop: 2 },
   detailRow: {
     paddingVertical: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
   },
   detailLabel: {
-    color: colors.textSubtle,
     fontSize: 11,
     fontWeight: "700",
     marginBottom: 4,
   },
-  detailValue: { color: colors.text, fontSize: 14, fontWeight: "600" },
+  detailValue: { fontSize: 14, fontWeight: "600" },
   metricRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     gap: spacing.md,
     paddingVertical: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
   },
-  metricLabel: { color: colors.textMuted, fontSize: 13, flex: 1 },
-  metricValue: { color: colors.text, fontWeight: "800", fontSize: 14 },
+  metricLabel: { fontSize: 13, flex: 1 },
+  metricValue: { fontWeight: "800", fontSize: 14 },
 });

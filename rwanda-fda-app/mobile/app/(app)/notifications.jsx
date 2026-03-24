@@ -24,6 +24,7 @@ import PressableScale from '../../components/PressableScale';
 import { ListSkeleton } from '../../components/SkeletonLoader';
 import { useThemeMode } from '../../context/ThemeContext';
 import FriendlyErrorBanner from '../../components/FriendlyErrorBanner';
+import { hapticTap } from '../../lib/haptics';
 import {
   deleteNotificationOnServer,
   fetchNotificationsPage,
@@ -146,7 +147,7 @@ async function fetchNotificationsAuthed(token, queryOpts) {
   return result;
 }
 
-function NotificationRow({ item, styles, isDark, onOpen, onMarkRead, onDismiss, markingIds }) {
+function NotificationRow({ item, styles, isDark, onOpen, onMarkRead, onArchive, onDelete, markingIds }) {
   const swipeRef = useRef(null);
   const kind = notificationKind(item);
   const meta = kindMeta(kind, isDark);
@@ -164,9 +165,23 @@ function NotificationRow({ item, styles, isDark, onOpen, onMarkRead, onDismiss, 
           <TouchableOpacity
             onPress={() => {
               swipeRef.current?.close();
-              onDismiss(item);
+              void hapticTap();
+              onArchive(item);
             }}
-            style={styles.swipeDelete}
+            style={[styles.swipeActionCol, styles.swipeArchive]}
+            accessibilityRole="button"
+            accessibilityLabel="Archive notification"
+          >
+            <Ionicons name="archive-outline" size={22} color="#fff" />
+            <Text style={styles.swipeActionText}>Archive</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => {
+              swipeRef.current?.close();
+              void hapticTap();
+              onDelete(item);
+            }}
+            style={[styles.swipeActionCol, styles.swipeDelete]}
             accessibilityRole="button"
             accessibilityLabel="Delete notification"
           >
@@ -182,9 +197,10 @@ function NotificationRow({ item, styles, isDark, onOpen, onMarkRead, onDismiss, 
                 <TouchableOpacity
                   onPress={() => {
                     swipeRef.current?.close();
+                    void hapticTap();
                     onMarkRead(item.id);
                   }}
-                  style={styles.swipeRead}
+                  style={[styles.swipeActionCol, styles.swipeRead]}
                   accessibilityRole="button"
                   accessibilityLabel="Mark as read"
                 >
@@ -435,6 +451,20 @@ export default function Notifications() {
     router.push(resolveTarget(item));
   }
 
+  /** Hide from this device only; notification stays on server (Telegram-style archive). */
+  function archiveItem(item) {
+    const id = item?.id;
+    if (id == null) return;
+    const sid = String(id);
+    setDismissedIds((prev) => {
+      const next = new Set(prev);
+      next.add(sid);
+      persistDismissedIds(next);
+      return next;
+    });
+    setAllItems((prev) => prev.filter((x) => String(x.id) !== sid));
+  }
+
   async function dismissItem(item) {
     const id = item?.id;
     if (id == null) return;
@@ -515,7 +545,6 @@ export default function Notifications() {
                 style={styles.authOutBtn}
                 onPress={async () => {
                   await logout();
-                  router.replace('/');
                 }}
                 hapticType="medium"
               >
@@ -619,7 +648,8 @@ export default function Notifications() {
               isDark={isDark}
               onOpen={openItem}
               onMarkRead={markNotificationRead}
-              onDismiss={dismissItem}
+              onArchive={archiveItem}
+              onDelete={dismissItem}
               markingIds={markingIds}
             />
           </View>
@@ -789,23 +819,27 @@ const createStyles = (isDark) => {
       alignItems: 'stretch',
       marginBottom: spacing.sm,
     },
-    swipeDelete: {
-      backgroundColor: '#dc2626',
+    /** Telegram-style columns: icon + label, full row height */
+    swipeActionCol: {
+      width: 82,
       justifyContent: 'center',
       alignItems: 'center',
-      width: 88,
+      paddingVertical: 12,
+    },
+    swipeArchive: {
+      backgroundColor: isDark ? '#52525b' : '#6b7280',
+    },
+    swipeDelete: {
+      backgroundColor: '#dc2626',
       borderTopRightRadius: radius.lg,
       borderBottomRightRadius: radius.lg,
     },
     swipeRead: {
       backgroundColor: colors.fdaGreen,
-      justifyContent: 'center',
-      alignItems: 'center',
-      width: 88,
       borderTopLeftRadius: radius.lg,
       borderBottomLeftRadius: radius.lg,
     },
-    swipeActionText: { color: '#fff', fontSize: 11, fontWeight: '800', marginTop: 4 },
+    swipeActionText: { color: '#fff', fontSize: 11, fontWeight: '800', marginTop: 5, textAlign: 'center' },
 
     row: {
       flexDirection: 'row',

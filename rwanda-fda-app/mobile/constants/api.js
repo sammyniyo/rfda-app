@@ -17,6 +17,8 @@ export const api = {
   login: process.env.EXPO_PUBLIC_AUTH_LOGIN_URL || `${API_BASE}/auth.php`,
   /** Optional second endpoint tried if the first returns failure (e.g. PHP + Node fallback). */
   loginFallback: process.env.EXPO_PUBLIC_AUTH_FALLBACK_LOGIN_URL || '',
+  /** POST — invalidates Bearer token in `tbl_api_tokens` (see `logout_api.php`). */
+  logout: process.env.EXPO_PUBLIC_LOGOUT_URL || `${API_BASE}/logout_api.php`,
   // TODO: point these to PHP endpoints when available
   refresh: `${API_BASE}/auth/refresh`,
   forgotPassword: `${API_BASE}/auth/forgot-password`,
@@ -65,6 +67,12 @@ export const api = {
     return [...new Set(out)];
   },
   notifications: `${API_BASE}/notifications.php`,
+  /**
+   * Optional GET (no auth) — JSON like notifications.php (`items` / `data.items` / array).
+   * Used when the user is logged out so banners can still show (e.g. public announcements).
+   * Set `EXPO_PUBLIC_PUBLIC_NOTIFICATIONS_URL` in `.env` to your PHP script URL.
+   */
+  publicNotifications: String(process.env.EXPO_PUBLIC_PUBLIC_NOTIFICATIONS_URL || '').trim(),
   /** @param {{ page?: number, limit?: number, filter?: string }} [q] */
   notificationsQuery: (q = {}) => {
     const page = q.page ?? 1;

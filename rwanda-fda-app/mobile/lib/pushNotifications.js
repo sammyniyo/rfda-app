@@ -10,7 +10,8 @@ const isExpoGo = Constants.appOwnership === 'expo';
 export const ANDROID_ALERT_CHANNEL_ID = 'rwanda-fda-alerts';
 
 export async function ensureAndroidAlertChannelAsync() {
-  if (isExpoGo || Platform.OS !== 'android') return;
+  if (Platform.OS !== 'android') return;
+  try {
   await Notifications.setNotificationChannelAsync(ANDROID_ALERT_CHANNEL_ID, {
     name: 'Rwanda FDA alerts',
     description: 'Task and application updates',
@@ -21,6 +22,9 @@ export async function ensureAndroidAlertChannelAsync() {
     enableVibrate: true,
     showBadge: true,
   });
+  } catch {
+    /* Expo Go / hosts without full channel API */
+  }
 }
 
 export async function registerForPushNotificationsAsync() {
