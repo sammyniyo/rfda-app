@@ -21,6 +21,7 @@ import { useAuth } from '../context/AuthContext';
 import { colors } from '../constants/theme';
 import { api } from '../constants/api';
 import { errors as msg } from '../lib/messages';
+import { mapPhpAuthPayloadToUser } from '../lib/mapAuthStaffToUser';
 import PressableScale from './PressableScale';
 import FadeInView from './FadeInView';
 import PreviewWebNotice from './PreviewWebNotice';
@@ -177,45 +178,7 @@ export default function LoginScreen() {
         return;
       }
 
-      const data = payload.data || payload;
-      const apiUser = data.user || {};
-
-      // Monitoring Tool (PHP) + Node (`server/src/routes/auth.js`) shapes
-      const baseUser = {
-        id: apiUser.user_id ?? apiUser.id ?? data.staff?.staff_id,
-        staff_id: apiUser.staff_id ?? data.staff?.staff_id ?? null,
-        email: apiUser.user_email || apiUser.email || data.staff?.staff_email || normalizedEmail,
-        access: apiUser.user_access ?? apiUser.role ?? null,
-        roleId: apiUser.role_id ?? null,
-      };
-
-      const staffProfile = data.staff
-        ? {
-            name: data.staff.staff_names || normalizedEmail,
-            phone: data.staff.staff_phone || null,
-            gender: data.staff.staff_gender || null,
-            group: data.staff.staff_group || null,
-            dutyStation: data.staff.staff_duty_station || null,
-            employmentType: data.staff.staff_employment_type || null,
-            hireDate: data.staff.staff_hire_date || null,
-            degree: data.staff.staff_degree || null,
-            qualifications: data.staff.staff_qualifications || null,
-            supervisorId: data.staff.supervisor_id ?? null,
-          }
-        : apiUser.name
-          ? {
-              name: apiUser.name,
-              phone: apiUser.phone ?? null,
-              dutyStation: apiUser.department ?? null,
-            }
-          : {};
-
-      const user = {
-        ...baseUser,
-        ...staffProfile,
-      };
-
-      const sessionToken = data.token || payload.token || apiUser.token;
+      const { user, token: sessionToken } = mapPhpAuthPayloadToUser(payload, normalizedEmail);
       if (!sessionToken || String(sessionToken).trim() === '') {
         await hapticError();
         Alert.alert(

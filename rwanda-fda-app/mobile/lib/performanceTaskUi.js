@@ -80,9 +80,9 @@ export function timelineStatusLabel(ts) {
   const s = String(ts || '').toLowerCase();
   const map = {
     ontime: 'On track',
-    tobedelayed: 'At risk (due soon)',
+    tobedelayed: 'Due soon',
     delayed: 'Overdue',
-    completed_late: 'Completed after due date',
+    completed_late: 'Finished after deadline',
   };
   return map[s] || (ts ? String(ts).replace(/_/g, ' ') : '—');
 }
@@ -124,18 +124,18 @@ export function buildTaskTimelineFromApi(task, isDark, colors) {
 
   const daysLine =
     task.days_allowed != null && task.days_taken != null
-      ? `Elapsed ${task.days_taken} / ${task.days_allowed} day window`
+      ? `Day ${task.days_taken} of ${task.days_allowed} on this step`
       : null;
   const remainLine =
     task.days_remaining != null && task.days_remaining !== ''
       ? Number(task.days_remaining) >= 0
-        ? `${task.days_remaining} day(s) until due`
-        : `${Math.abs(Number(task.days_remaining))} day(s) past due`
+        ? `${task.days_remaining} days left until due`
+        : `${Math.abs(Number(task.days_remaining))} days past due`
       : null;
 
   const assignedLine = task.assigned_by
     ? `Assigned by ${task.assigned_by}`
-    : 'Assigned to you in the monitoring tool.';
+    : 'Assigned to you.';
 
   const isDone = task.status === 'completed';
   const inReview = task.status === 'review';
@@ -145,8 +145,8 @@ export function buildTaskTimelineFromApi(task, isDark, colors) {
 
   steps.push({
     key: 'created',
-    title: 'Task recorded',
-    subtitle: [typeLine, 'Created in the system.'].filter(Boolean).join(' '),
+    title: 'Recorded',
+    subtitle: [typeLine, 'Added to your task list.'].filter(Boolean).join(' · '),
     time: createdAt,
     done: Boolean(createdAt),
     active: false,
@@ -167,10 +167,30 @@ export function buildTaskTimelineFromApi(task, isDark, colors) {
     stateLabel: 'Set',
   });
 
+  const rs = String(rawStatusDisplay).trim();
+  const statusFriendly =
+    rs === '—' || !rs
+      ? '—'
+      : rs === 'in progress'
+        ? 'In progress'
+        : rs === 'pending'
+          ? 'Not started'
+          : rs === 'completed'
+            ? 'Completed'
+            : rs === 'review'
+              ? 'In review'
+              : rs.charAt(0).toUpperCase() + rs.slice(1);
+
   steps.push({
     key: 'progress',
-    title: 'Progress & SLA',
-    subtitle: [daysLine, `Timeline: ${tl}`, `Workflow status: ${rawStatusDisplay}`].filter(Boolean).join('\n'),
+    title: 'Progress',
+    subtitle: [
+      daysLine,
+      tl !== '—' ? `Schedule: ${tl}` : null,
+      statusFriendly !== '—' ? `Status: ${statusFriendly}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n'),
     time: task.updated_at || createdAt,
     done: isDone,
     active: isActiveWork || inReview,
@@ -182,7 +202,7 @@ export function buildTaskTimelineFromApi(task, isDark, colors) {
   steps.push({
     key: 'due',
     title: 'Due date',
-    subtitle: [dueAt ? `Due ${new Date(dueAt).toLocaleString()}` : 'No due date on file', remainLine].filter(Boolean).join(' · '),
+    subtitle: [dueAt ? `Due ${new Date(dueAt).toLocaleString()}` : 'No due date set', remainLine].filter(Boolean).join(' · '),
     time: dueAt,
     done: Boolean(dueAt),
     active: false,
@@ -193,14 +213,14 @@ export function buildTaskTimelineFromApi(task, isDark, colors) {
 
   steps.push({
     key: 'complete',
-    title: isDone ? 'Completed' : inReview ? 'Review & closure' : 'Completion',
+    title: isDone ? 'Completed' : inReview ? 'Review' : 'Finishing up',
     subtitle: inReview
-      ? 'Task is in review (monitoring tool treats this like complete for workload until closed).'
+      ? 'Waiting for final sign-off before it’s fully closed.'
       : completedAt
-        ? `Completed at ${new Date(completedAt).toLocaleString()}`
+        ? `Finished ${new Date(completedAt).toLocaleString()}`
         : isDone
-          ? 'Marked complete (no timestamp returned).'
-          : 'Not completed yet.',
+          ? 'Marked as done.'
+          : 'Not finished yet.',
     time: completedAt || (isDone ? task.updated_at : null),
     done: isDone,
     active: false,
@@ -221,14 +241,14 @@ export function buildTaskTimelineFromApi(task, isDark, colors) {
       .join('\n');
     steps.push({
       key: 'collab',
-      title: 'Collaboration (from API)',
+      title: 'Extra details',
       subtitle: summary || '—',
       time: null,
       done: true,
       active: false,
       dot: colors.fdaBlue,
       tone: tone('#f0f9ff', 'rgba(56,189,248,0.2)'),
-      stateLabel: 'Extra fields',
+      stateLabel: 'More info',
     });
   }
 

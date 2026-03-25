@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Image,
   RefreshControl,
@@ -20,6 +20,14 @@ import { api } from "../../constants/api";
 import FadeInView from "../../components/FadeInView";
 import PressableScale from "../../components/PressableScale";
 import { hapticSuccess } from "../../lib/haptics";
+import {
+  extractPerformanceApplications,
+  extractPerformanceTasks,
+  fetchMonitoringPerformance,
+  normalizePerformancePayloadData,
+} from "../../lib/monitoringPerformance";
+import { normalizeTaskFromPerformance } from "../../lib/performanceTaskUi";
+import { getMonitoringStaffId } from "../../lib/staffSession";
 
 async function fetchJson(url, token) {
   const res = await fetch(url, { headers: getAuthHeaders(() => token) });
@@ -35,6 +43,35 @@ function initials(name) {
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+}
+
+/**
+ * Direct reports: Under Statute + active when the API sends those fields.
+ * If subordinate rows omit `staff_group` / `staff_status` (common), show them so the list is not empty.
+ */
+function filterDirectReportsForProfile(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((m) => {
+    const gRaw = m?.staff_group ?? m?.group;
+    const st = m?.staff_status ?? m?.status;
+
+    const hasGroup = gRaw != null && String(gRaw).trim() !== "";
+    const hasStatus = st != null && String(st).trim() !== "";
+
+    if (!hasGroup && !hasStatus) return true;
+
+    const gNorm = String(gRaw ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+    const underStatute =
+      gNorm === "under statute" || gNorm.includes("under statute");
+    const active = Number(st) === 1;
+
+    if (hasGroup && !underStatute) return false;
+    if (hasStatus && !active) return false;
+    return true;
+  });
 }
 
 function DetailRow({ label, value, textSubtle, textMain, borderColor }) {
@@ -170,6 +207,34 @@ export default function Profile() {
     ? { backgroundColor: "rgba(217,119,6,0.22)", borderColor: "rgba(251,191,36,0.3)" }
     : { backgroundColor: "#fff6ea", borderColor: "rgba(217,119,6,0.14)" };
   const [refreshing, setRefreshing] = useState(false);
+  const [reportsVisible, setReportsVisible] = useState(8);
+  const directReportsFilteredLen = filterDirectReportsForProfile(user?.direct_reports).length;
+  useEffect(() => {
+    setReportsVisible(8);
+  }, [user?.staff_id, directReportsFilteredLen]);
+
+  const performanceQuery = useQuery(
+    async () => {
+      if (!token) return { applications: null, tasks: null };
+      try {
+        const { payload } = await fetchMonitoringPerformance({
+          staffId: getMonitoringStaffId(user),
+          token,
+          getToken: () => token,
+        });
+        const inner = normalizePerformancePayloadData(payload) ?? {};
+        const wrapper = { success: true, data: inner };
+        const rawApps = extractPerformanceApplications(wrapper);
+        const rawTasks = extractPerformanceTasks(wrapper);
+        const tasks = rawTasks.map((t, i) => normalizeTaskFromPerformance(t, i));
+        return { applications: rawApps, tasks };
+      } catch {
+        return { applications: null, tasks: null };
+      }
+    },
+    [token, user?.staff_id],
+    { cacheKey: token ? `profile_perf_${token}_${user?.staff_id ?? ""}` : undefined },
+  );
 
   const tasksQuery = useQuery(
     () => fetchJson(api.tasks, token).catch(() => []),
@@ -195,10 +260,11 @@ export default function Profile() {
       };
 
       // Try `Bearer <token>` first, then fall back to raw token.
-      let res = await fetch(api.notifications, { headers: headersBearer });
+      const notifUrl = api.notificationsQuery({ limit: 150, page: 1, filter: "all" });
+      let res = await fetch(notifUrl, { headers: headersBearer });
       if (res.ok) return await res.json().catch(() => []);
       if (res.status === 401 || res.status === 403) {
-        res = await fetch(api.notifications, { headers: headersRaw });
+        res = await fetch(notifUrl, { headers: headersRaw });
         if (res.ok) return await res.json().catch(() => []);
       }
       return [];
@@ -209,6 +275,8 @@ export default function Profile() {
   const { data: tasks = [] } = tasksQuery;
   const { data: applications = [] } = applicationsQuery;
   const { data: notifications = [] } = notificationsQuery;
+  const perfApps = performanceQuery.data?.applications;
+  const perfTasks = performanceQuery.data?.tasks;
 
   const profile = user || null;
 
@@ -229,6 +297,8 @@ export default function Profile() {
 
   const taskList = Array.isArray(tasks) ? tasks : [];
   const appList = Array.isArray(applications) ? applications : [];
+  const appListForStats = Array.isArray(perfApps) ? perfApps : appList;
+  const taskListForStats = Array.isArray(perfTasks) ? perfTasks : taskList;
   const notifList = Array.isArray(notifications)
     ? notifications
     : Array.isArray(notifications?.data?.items)
@@ -236,13 +306,17 @@ export default function Profile() {
       : Array.isArray(notifications?.items)
         ? notifications.items
         : [];
-  const directReports = Array.isArray(profile.direct_reports)
+  const allDirectReports = Array.isArray(profile.direct_reports)
     ? profile.direct_reports
     : [];
+  const directReports = filterDirectReportsForProfile(allDirectReports);
+  const reportCount = directReports.length;
 
-  const pendingTasks = taskList.filter((t) => t.status !== "completed").length;
-  const completedTasks = taskList.filter(
-    (t) => t.status === "completed",
+  const pendingTasks = taskListForStats.filter(
+    (t) => t.status !== "completed" && t.status !== "review",
+  ).length;
+  const completedTasks = taskListForStats.filter(
+    (t) => t.status === "completed" || t.status === "review",
   ).length;
   const unreadNotifications = notifList.filter((n) => !n.read_at).length;
 
@@ -250,6 +324,7 @@ export default function Profile() {
     setRefreshing(true);
     try {
       await Promise.all([
+        performanceQuery.refetch(),
         tasksQuery.refetch(),
         applicationsQuery.refetch(),
         notificationsQuery.refetch(),
@@ -331,7 +406,11 @@ export default function Profile() {
                   hapticType="medium"
                   onPress={async () => {
                     await hapticSuccess();
-                    await logout();
+                    try {
+                      await logout();
+                    } catch {
+                      /* logout always clears local state; swallow stray native errors */
+                    }
                   }}
                 >
                   <Ionicons
@@ -372,7 +451,7 @@ export default function Profile() {
 
             <View style={styles.statsCardsRow}>
               <View style={[styles.statCard, statApps]}>
-                <Text style={[styles.statValue, { color: textMain }]}>{appList.length}</Text>
+                <Text style={[styles.statValue, { color: textMain }]}>{appListForStats.length}</Text>
                 <Text style={[styles.statLabel, { color: textMuted }]}>Applications</Text>
               </View>
               <View style={[styles.statCard, statTasks]}>
@@ -404,22 +483,41 @@ export default function Profile() {
             <InfoRow icon="mail-outline" label="Work email" value={profile.email} {...infoProps} />
             <InfoRow icon="call-outline" label="Phone" value={profile.phone} {...infoProps} />
             <InfoRow
-              icon="business-outline"
+              icon="location-outline"
               label="Duty station"
               value={profile.dutyStation || profile.department}
               {...infoProps}
             />
             <InfoRow icon="people-outline" label="Staff group" value={profile.group} {...infoProps} />
+            <InfoRow
+              icon="briefcase-outline"
+              label="Position"
+              value={profile.position}
+              {...infoProps}
+            />
+            <InfoRow
+              icon="business-outline"
+              label="Organization"
+              value={
+                [profile.parentOrgUnitName, profile.orgUnitName].filter(Boolean).join(" · ") ||
+                profile.orgUnitName ||
+                null
+              }
+              {...infoProps}
+            />
           </View>
         </FadeInView>
 
         <FadeInView delay={160} translateY={10}>
           <View style={[styles.panel, { backgroundColor: cardBg, borderColor }]}>
-            <DetailRow label="Personal email" value={profile.personal_email} {...detailProps} />
-            <Text style={[styles.panelTitle, { marginTop: spacing.md, color: textMain }]}>
-              More
-            </Text>
+            <Text style={[styles.panelTitle, { color: textMain }]}>More</Text>
             <DetailRow label="Degree" value={profile.degree} {...detailProps} />
+            <DetailRow label="Qualifications" value={profile.qualifications} {...detailProps} />
+            <DetailRow
+              label="Contract"
+              value={profile.contractType}
+              {...detailProps}
+            />
             <DetailRow
               label="Hire date"
               value={
@@ -445,7 +543,7 @@ export default function Profile() {
             </View>
             <View style={[styles.metricRow, { borderTopColor: borderColor }]}>
               <Text style={[styles.metricLabel, { color: textMuted }]}>Applications in my queue</Text>
-              <Text style={[styles.metricValue, { color: textMain }]}>{appList.length}</Text>
+              <Text style={[styles.metricValue, { color: textMain }]}>{appListForStats.length}</Text>
             </View>
             <View style={[styles.metricRow, { borderTopColor: borderColor }]}>
               <Text style={[styles.metricLabel, { color: textMuted }]}>Unread notifications</Text>
@@ -459,7 +557,7 @@ export default function Profile() {
             <View style={styles.panelHeaderRow}>
               <Text style={[styles.panelTitle, { color: textMain }]}>Staff hierarchy</Text>
               <Text style={[styles.hintRightText, { color: textMuted }]}>
-                {directReports.length} reports
+                {reportCount} report{reportCount === 1 ? "" : "s"}
               </Text>
             </View>
 
@@ -490,20 +588,25 @@ export default function Profile() {
                   },
                 ]}
               >
-                {directReports.length}
+                {reportCount}
               </Text>
             </View>
 
-            {directReports.length === 0 ? (
+            {allDirectReports.length === 0 ? (
               <View style={[styles.hEmptyCard, { backgroundColor: cardSoft, borderColor }]}>
                 <Text style={[styles.hEmptyText, { color: textMuted }]}>
                   No staff currently reporting to you.
                 </Text>
               </View>
+            ) : directReports.length === 0 ? (
+              <View style={[styles.hEmptyCard, { backgroundColor: cardSoft, borderColor }]}>
+                <Text style={[styles.hEmptyText, { color: textMuted }]}>
+                  No direct reports match Under Statute with active status.
+                </Text>
+              </View>
             ) : (
-              directReports
-                .slice(0, 6)
-                .map((member) => (
+              <>
+                {directReports.slice(0, reportsVisible).map((member) => (
                   <TeamMemberCard
                     key={member.staff_id || member.user_id || member.email}
                     member={member}
@@ -515,7 +618,21 @@ export default function Profile() {
                     textSubtle={textSubtle}
                     isDark={isDark}
                   />
-                ))
+                ))}
+                {directReports.length > reportsVisible ? (
+                  <PressableScale
+                    style={[styles.loadMoreReports, { borderColor, backgroundColor: cardSoft }]}
+                    onPress={() =>
+                      setReportsVisible((n) => Math.min(n + 8, directReports.length))
+                    }
+                  >
+                    <Text style={[styles.loadMoreReportsText, { color: colors.fdaGreen }]}>
+                      Load more ({directReports.length - reportsVisible} left)
+                    </Text>
+                    <Ionicons name="chevron-down" size={18} color={colors.fdaGreen} />
+                  </PressableScale>
+                ) : null}
+              </>
             )}
           </View>
         </FadeInView>
@@ -719,6 +836,18 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     overflow: "hidden",
   },
+  loadMoreReports: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  loadMoreReportsText: { fontSize: 13, fontWeight: "800" },
   hEmptyCard: {
     borderRadius: radius.md,
     borderWidth: 1,

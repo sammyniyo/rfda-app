@@ -8,11 +8,9 @@ import { useAuth } from '../../context/AuthContext';
 import { useQuery } from '../../hooks/useQuery';
 import { getAuthHeaders, isApiSuccess } from '../../lib/api';
 import { api } from '../../constants/api';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
 import AuthLoadingScreen from '../../components/AuthLoadingScreen';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchMonitoringPerformance, extractPerformanceTasks } from '../../lib/monitoringPerformance';
-import { getMonitoringStaffId } from '../../lib/staffSession';
 
 /** Tab bar palette — dark bar + light bar with gradient via tabBarBackground */
 const TAB_BAR = {
@@ -109,27 +107,6 @@ function TabBarIcon({ focused, routeName, isDark, badgeCount = 0 }) {
  */
 function AuthenticatedTabs({ isDark, resolvedTheme, token }) {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
-
-  const tasksTabQuery = useQuery(
-    async () => {
-      if (!token) return [];
-      const staffId = getMonitoringStaffId(user);
-      const { payload } = await fetchMonitoringPerformance({
-        staffId,
-        token,
-        getToken: () => token,
-      });
-      return extractPerformanceTasks(payload);
-    },
-    [token, user?.staff_id],
-    { cacheKey: token ? `tab_bar_tasks_${token}` : undefined }
-  );
-
-  const openTaskCount = useMemo(
-    () => countOpenTasksFromPayload(tasksTabQuery.data),
-    [tasksTabQuery.data]
-  );
 
   const notificationsQuery = useQuery(
     async () => {
@@ -169,7 +146,6 @@ function AuthenticatedTabs({ isDark, resolvedTheme, token }) {
     if (!token) return undefined;
     const id = setInterval(() => {
       notificationsQuery.refetch().catch(() => {});
-      tasksTabQuery.refetch().catch(() => {});
     }, 30000);
     return () => clearInterval(id);
   }, [token]);
@@ -199,12 +175,7 @@ function AuthenticatedTabs({ isDark, resolvedTheme, token }) {
           paddingBottom: Math.max(insets.bottom, 8),
         },
         tabBarIcon: ({ focused }) => {
-          const badgeCount =
-            route.name === 'index'
-              ? openTaskCount
-              : route.name === 'notifications'
-                ? unreadCount
-                : 0;
+          const badgeCount = route.name === 'notifications' ? unreadCount : 0;
           return (
             <TabBarIcon focused={focused} routeName={route.name} isDark={isDark} badgeCount={badgeCount} />
           );
@@ -243,18 +214,23 @@ export default function AppLayout() {
   const { isDark, resolvedTheme } = useThemeMode();
   const { token, loading } = useAuth();
   const router = useRouter();
-  /** `useRouter()` identity is often unstable; never put `router` in effect deps or replace('/') loops forever. */
-  const hasSentToRootRef = useRef(false);
 
+  /** After logout, navigate out of (app) on the next frame. Cancellable so React Strict Mode / re-runs do not stick on “Signing out…”. */
   useEffect(() => {
-    if (loading) return;
-    if (token) {
-      hasSentToRootRef.current = false;
-      return;
-    }
-    if (hasSentToRootRef.current) return;
-    hasSentToRootRef.current = true;
-    router.replace('/');
+    if (loading || token) return undefined;
+    let cancelled = false;
+    const frame = requestAnimationFrame(() => {
+      if (cancelled) return;
+      try {
+        router.replace('/');
+      } catch {
+        /* ignore */
+      }
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
   }, [loading, token]);
 
   if (loading) {

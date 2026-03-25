@@ -89,14 +89,17 @@ export function AuthProvider({ children }) {
   const logout = useCallback(async () => {
     const sessionToken = tokenRef.current && String(tokenRef.current).trim();
     SKIP_NEXT_RESTORE = true;
-    await invalidateTokenOnServer(sessionToken);
+    try {
+      await invalidateTokenOnServer(sessionToken);
+    } catch {
+      /* network / native — still clear local session */
+    }
     // Important: delete persisted token soon after server invalidation attempt.
     // Otherwise expo-router redirects can remount AuthProvider and temporarily restore
     // the old token from SecureStore, causing redirect/update loops.
     await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
     await SecureStore.deleteItemAsync(USER_KEY).catch(() => {});
     await SecureStore.deleteItemAsync(BIOMETRIC_EMAIL_KEY).catch(() => {});
-    // Non-secret UI cache: don’t leak dismissed notification IDs to the next signed-in user.
     await AsyncStorage.removeItem(NOTIFICATION_DISMISSED_STORAGE_KEY).catch(() => {});
     setTokenState(null);
     setUser(null);

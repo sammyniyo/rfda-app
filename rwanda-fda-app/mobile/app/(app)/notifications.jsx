@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   RefreshControl,
   ScrollView,
@@ -18,7 +17,6 @@ import { useAuth } from '../../context/AuthContext';
 import { Swipeable, TouchableOpacity } from 'react-native-gesture-handler';
 import { colors, spacing, radius, shadow } from '../../constants/theme';
 import { getAuthHeaders } from '../../lib/api';
-import { api } from '../../constants/api';
 import FadeInView from '../../components/FadeInView';
 import PressableScale from '../../components/PressableScale';
 import { ListSkeleton } from '../../components/SkeletonLoader';
@@ -147,7 +145,7 @@ async function fetchNotificationsAuthed(token, queryOpts) {
   return result;
 }
 
-function NotificationRow({ item, styles, isDark, onOpen, onMarkRead, onArchive, onDelete, markingIds }) {
+function NotificationRow({ item, styles, isDark, onOpen, onArchive, onDelete }) {
   const swipeRef = useRef(null);
   const kind = notificationKind(item);
   const meta = kindMeta(kind, isDark);
@@ -157,9 +155,12 @@ function NotificationRow({ item, styles, isDark, onOpen, onMarkRead, onArchive, 
   return (
     <Swipeable
       ref={swipeRef}
-      friction={2}
+      friction={1}
+      overshootFriction={12}
       overshootRight={false}
       overshootLeft={false}
+      activeOffsetX={[-24, 24]}
+      failOffsetY={[-14, 14]}
       renderRightActions={() => (
         <View style={styles.swipeActionsRight}>
           <TouchableOpacity
@@ -190,27 +191,6 @@ function NotificationRow({ item, styles, isDark, onOpen, onMarkRead, onArchive, 
           </TouchableOpacity>
         </View>
       )}
-      renderLeftActions={
-        unread
-          ? () => (
-              <View style={styles.swipeActionsLeft}>
-                <TouchableOpacity
-                  onPress={() => {
-                    swipeRef.current?.close();
-                    void hapticTap();
-                    onMarkRead(item.id);
-                  }}
-                  style={[styles.swipeActionCol, styles.swipeRead]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Mark as read"
-                >
-                  <Ionicons name="checkmark-done-outline" size={22} color="#fff" />
-                  <Text style={styles.swipeActionText}>Read</Text>
-                </TouchableOpacity>
-              </View>
-            )
-          : undefined
-      }
     >
       <TouchableOpacity
         activeOpacity={0.92}
@@ -255,11 +235,6 @@ function NotificationRow({ item, styles, isDark, onOpen, onMarkRead, onArchive, 
                 <Text style={styles.pillReadText}>Read</Text>
               </View>
             )}
-            {item.id && unread && !markingIds[String(item.id)] ? (
-              <PressableScale style={styles.markReadBtn} onPress={() => onMarkRead(item.id)} hapticType="light">
-                <Text style={styles.markReadBtnText}>Mark read</Text>
-              </PressableScale>
-            ) : null}
             <View style={styles.footerSpacer} />
             <Text style={styles.openHint}>Open</Text>
             <Ionicons name="chevron-forward" size={16} color={styles.chevronColor} />
@@ -287,8 +262,6 @@ export default function Notifications() {
   const [kindFilter, setKindFilter] = useState('all');
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [search, setSearch] = useState('');
-  const [markingIds, setMarkingIds] = useState({});
-
   const loadMoreGuard = useRef(false);
   const dismissedRef = useRef(new Set());
   const listFilterKey = unreadOnly ? 'unread' : 'all';
@@ -412,42 +385,8 @@ export default function Notifications() {
     [allItems, dismissedIds]
   );
 
-  async function markNotificationRead(id) {
-    const sid = String(id);
-    if (!id || markingIds[sid]) return;
-    const prev = allItems.find((n) => String(n.id) === sid)?.read_at ?? null;
-    setMarkingIds((x) => ({ ...x, [sid]: true }));
-    setAllItems((x) =>
-      x.map((n) => (String(n.id) === sid ? { ...n, read_at: n.read_at || new Date().toISOString() } : n))
-    );
-    try {
-      const base = String(api.notifications || '').replace(/\.php$/i, '');
-      const tokenValue = String(token || '');
-      const headersBearer = { ...getAuthHeaders(() => token), Authorization: `Bearer ${tokenValue}` };
-      const headersRaw = { ...getAuthHeaders(() => token), Authorization: tokenValue };
-      const url = `${base}/${encodeURIComponent(sid)}/read`;
-      let res = await fetch(url, { method: 'PATCH', headers: headersBearer });
-      if (!res.ok && (res.status === 401 || res.status === 403)) {
-        res = await fetch(url, { method: 'PATCH', headers: headersRaw });
-      }
-      if (!res.ok) throw new Error('Failed');
-    } catch {
-      setAllItems((x) => x.map((n) => (String(n.id) === sid ? { ...n, read_at: prev } : n)));
-      Alert.alert('Notifications', "We couldn't mark this item as read.");
-    } finally {
-      setMarkingIds((x) => {
-        const n = { ...x };
-        delete n[sid];
-        return n;
-      });
-    }
-  }
-
-  /** Tap row: mark read (and wait for API) before navigating so the badge/list update reliably. */
-  async function openItem(item) {
-    if (!item?.read_at && item?.id != null) {
-      await markNotificationRead(item.id);
-    }
+  /** Open target screen only — mark-as-read stays on web; app does not PATCH read state. */
+  function openItem(item) {
     router.push(resolveTarget(item));
   }
 
@@ -544,7 +483,11 @@ export default function Notifications() {
               <PressableScale
                 style={styles.authOutBtn}
                 onPress={async () => {
-                  await logout();
+                  try {
+                    await logout();
+                  } catch {
+                    /* ignore */
+                  }
                 }}
                 hapticType="medium"
               >
@@ -558,13 +501,13 @@ export default function Notifications() {
           <View style={styles.headerCard}>
             <View style={styles.headerTop}>
               <View style={[styles.headerIconWrap, { backgroundColor: isDark ? 'rgba(15,94,71,0.35)' : colors.fdaGreenSoft }]}>
-                <Ionicons name="notifications" size={26} color={colors.fdaGreen} />
+                <Image source={require('../../assets/RwandaFDA.png')} style={styles.headerLogo} resizeMode="contain" />
               </View>
               <View style={styles.headerTextBlock}>
                 <Text style={styles.headerTitle}>Inbox</Text>
                 <Text style={styles.headerSub}>
                   {unreadCount > 0
-                    ? `${unreadCount} unread · pull for latest, swipe to delete`
+                    ? `${unreadCount} unread · pull to refresh, swipe left to archive or delete`
                     : allItems.length > 0
                       ? 'You’re all caught up'
                       : 'Updates from Rwanda FDA'}
@@ -647,10 +590,8 @@ export default function Notifications() {
               styles={styles}
               isDark={isDark}
               onOpen={openItem}
-              onMarkRead={markNotificationRead}
               onArchive={archiveItem}
               onDelete={dismissItem}
-              markingIds={markingIds}
             />
           </View>
         )}
@@ -753,6 +694,7 @@ const createStyles = (isDark) => {
       alignItems: 'center',
       justifyContent: 'center',
     },
+    headerLogo: { width: 34, height: 28 },
     headerTextBlock: { flex: 1 },
     headerTitle: { color: text, fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
     headerSub: { color: muted, fontSize: 13, marginTop: 4, lineHeight: 18 },
@@ -814,14 +756,9 @@ const createStyles = (isDark) => {
       alignItems: 'stretch',
       marginBottom: spacing.sm,
     },
-    swipeActionsLeft: {
-      flexDirection: 'row',
-      alignItems: 'stretch',
-      marginBottom: spacing.sm,
-    },
     /** Telegram-style columns: icon + label, full row height */
     swipeActionCol: {
-      width: 82,
+      width: 88,
       justifyContent: 'center',
       alignItems: 'center',
       paddingVertical: 12,
@@ -833,11 +770,6 @@ const createStyles = (isDark) => {
       backgroundColor: '#dc2626',
       borderTopRightRadius: radius.lg,
       borderBottomRightRadius: radius.lg,
-    },
-    swipeRead: {
-      backgroundColor: colors.fdaGreen,
-      borderTopLeftRadius: radius.lg,
-      borderBottomLeftRadius: radius.lg,
     },
     swipeActionText: { color: '#fff', fontSize: 11, fontWeight: '800', marginTop: 5, textAlign: 'center' },
 
@@ -931,11 +863,6 @@ const createStyles = (isDark) => {
       borderRadius: radius.pill,
     },
     pillReadText: { color: subtle, fontSize: 10, fontWeight: '800' },
-    markReadBtn: {
-      paddingVertical: 4,
-      paddingHorizontal: 8,
-    },
-    markReadBtnText: { color: colors.fdaGreen, fontSize: 11, fontWeight: '800' },
     footerSpacer: { flex: 1 },
     openHint: { color: colors.fdaGreen, fontSize: 12, fontWeight: '800' },
 

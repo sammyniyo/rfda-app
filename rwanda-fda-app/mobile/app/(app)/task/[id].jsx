@@ -99,7 +99,7 @@ export default function TaskDetailScreen() {
       <SafeAreaView style={[styles.safeArea, { backgroundColor: pageBg }]} edges={['top', 'left', 'right']}>
         <View style={[styles.centered, { backgroundColor: pageBg }]}>
           <ActivityIndicator color={colors.fdaGreen} />
-          <Text style={[styles.loadingText, { color: textMuted }]}>Loading task timeline…</Text>
+          <Text style={[styles.loadingText, { color: textMuted }]}>Loading task…</Text>
         </View>
       </SafeAreaView>
     );
@@ -176,7 +176,7 @@ export default function TaskDetailScreen() {
               <Ionicons name="chevron-back" size={20} color={textMain} />
             </PressableScale>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.heroEyebrow, { color: colors.fdaGreen }]}>Task Timeline</Text>
+              <Text style={[styles.heroEyebrow, { color: colors.fdaGreen }]}>Your task</Text>
               <Text style={[styles.heroTitle, { color: textMain }]} numberOfLines={2}>{task.title || 'Untitled task'}</Text>
               <Text style={[styles.heroSub, { color: textMuted }]} numberOfLines={2}>{task.description || 'No task description available.'}</Text>
             </View>
@@ -196,7 +196,7 @@ export default function TaskDetailScreen() {
 
           <View style={styles.progressWrap}>
             <View style={styles.progressTop}>
-              <Text style={[styles.progressLabel, { color: textMuted }]}>Progress (from SLA days + status)</Text>
+              <Text style={[styles.progressLabel, { color: textMuted }]}>Progress</Text>
               <Text style={[styles.progressValue, { color: textMain }]}>{progress}%</Text>
             </View>
             <View style={[styles.progressTrack, { backgroundColor: trackBg }]}>
@@ -229,7 +229,7 @@ export default function TaskDetailScreen() {
             <View style={[styles.quickStat, { backgroundColor: cardBg, borderColor }]}>
               <Ionicons name="pricetags-outline" size={14} color={colors.fdaBlue} />
               <View style={styles.quickStatTextBlock}>
-                <Text style={[styles.quickStatLabel, { color: textSubtle }]}>Type / category</Text>
+                <Text style={[styles.quickStatLabel, { color: textSubtle }]}>Type</Text>
                 <Text style={[styles.quickStatValue, { color: textMain }]} numberOfLines={2}>
                   {typeLine}
                 </Text>
@@ -253,7 +253,7 @@ export default function TaskDetailScreen() {
 
       <FadeInView delay={120} translateY={10}>
         <View style={[styles.sectionCard, { backgroundColor: cardBg, borderColor }]}>
-          <Text style={[styles.sectionTitle, { color: textMain }]}>Timeline</Text>
+          <Text style={[styles.sectionTitle, { color: textMain }]}>Updates</Text>
           {timeline.map((step, index) => (
             <View key={step.key} style={styles.timelineRow}>
               <View style={styles.timelineRail}>
@@ -288,28 +288,27 @@ export default function TaskDetailScreen() {
 
       <FadeInView delay={180} translateY={10}>
         <View style={[styles.sectionCard, { backgroundColor: cardBg, borderColor }]}>
-          <Text style={[styles.sectionTitle, { color: textMain }]}>Task Details</Text>
+          <Text style={[styles.sectionTitle, { color: textMain }]}>Details</Text>
           {[
-            ['Task ID', task.id],
-            ['API status', task.raw_status || '—'],
-            ['UI status', status],
-            ['Timeline (API)', timelineStatusLabel(task.timeline_status)],
+            ['Reference', task.id],
+            ['Status', status],
+            ['Schedule', timelineStatusLabel(task.timeline_status)],
             ['Priority', task.priority || '—'],
             ['Category', task.category || '—'],
-            ['Type / programme', [task.type_label, task.application_type].filter(Boolean).join(' · ') || '—'],
-            ['Application ref', task.application_id ? `#${task.application_id}` : '—'],
+            ['Type', [task.type_label, task.application_type].filter(Boolean).join(' · ') || '—'],
+            ['Application', task.application_id ? `#${task.application_id}` : '—'],
             ['Assigned by', task.assigned_by || '—'],
             ['Created', formatDateTime(task.created_at)],
             ['Updated', formatDateTime(task.updated_at)],
             ['Completed', formatDateTime(task.completed_at)],
             [
-              'Days (taken / allowed)',
+              'Days on step',
               task.days_allowed != null && task.days_taken != null
-                ? `${task.days_taken} / ${task.days_allowed}`
+                ? `${task.days_taken} of ${task.days_allowed}`
                 : '—',
             ],
             [
-              'Days remaining',
+              'Time left (days)',
               task.days_remaining != null && task.days_remaining !== '' ? String(task.days_remaining) : '—',
             ],
             ...Object.entries(task.extras || {}).map(([k, v]) => [

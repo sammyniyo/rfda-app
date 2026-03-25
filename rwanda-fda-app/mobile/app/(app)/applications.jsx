@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 import { FlatList, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,7 +7,12 @@ import { useQuery } from '../../hooks/useQuery';
 import { useAuth } from '../../context/AuthContext';
 import { useThemeMode } from '../../context/ThemeContext';
 import { colors, spacing, radius, shadow } from '../../constants/theme';
-import { extractPerformanceApplications, fetchMonitoringPerformance } from '../../lib/monitoringPerformance';
+import { canonicalApplicationTimeline } from '../../lib/applicationTimeline';
+import {
+  extractPerformanceApplications,
+  fetchMonitoringPerformance,
+  normalizePerformancePayloadData,
+} from '../../lib/monitoringPerformance';
 import { getMonitoringStaffId } from '../../lib/staffSession';
 import FadeInView from '../../components/FadeInView';
 import PressableScale from '../../components/PressableScale';
@@ -33,6 +39,7 @@ function statusAccent(meta) {
 
 const FILTER_CHIPS = [
   { key: '', label: 'All' },
+  { key: 'unique', label: 'Unique apps' },
   { key: 'active', label: 'Active' },
   { key: 'completed', label: 'Done' },
   { key: 'ontime', label: 'On time' },
@@ -40,57 +47,81 @@ const FILTER_CHIPS = [
   { key: 'delayed', label: 'Delayed' },
 ];
 
+const VALID_APP_FILTER_KEYS = new Set(FILTER_CHIPS.map((c) => c.key));
+
+function timelineSeverityRank(tl) {
+  const t = String(tl || '').toLowerCase();
+  if (t === 'delayed') return 4;
+  if (t === 'tobedelayed') return 3;
+  if (t === 'ontime') return 2;
+  return 1;
+}
+
+/** Prefer open work, then worst SLA state, then newest assignment — one row per `application_id`. */
+function pickRepresentativeAssignment(rows) {
+  if (rows.length === 1) return rows[0];
+  return [...rows].sort((a, b) => {
+    const aOpen = a.is_active && !a.is_completed ? 1 : 0;
+    const bOpen = b.is_active && !b.is_completed ? 1 : 0;
+    if (aOpen !== bOpen) return bOpen - aOpen;
+    const sev = timelineSeverityRank(b.timeline_status) - timelineSeverityRank(a.timeline_status);
+    if (sev !== 0) return sev;
+    const ta = new Date(a.updated_at || a.submitted_at || 0).getTime();
+    const tb = new Date(b.updated_at || b.submitted_at || 0).getTime();
+    if (tb !== ta) return tb - ta;
+    return String(a.assignment_id ?? '').localeCompare(String(b.assignment_id ?? ''));
+  })[0];
+}
+
+/** Deduplicate assignment rows to match `applications_summary.unique_applications` from performance_api.php. */
+function dedupeApplicationsByApplicationId(list) {
+  const groups = new Map();
+  for (const a of list) {
+    const id = a.application_id;
+    const key =
+      id != null && String(id).trim() !== '' ? `app:${id}` : `row:${a.rowKey}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(a);
+  }
+  const out = [];
+  for (const rows of groups.values()) {
+    out.push(pickRepresentativeAssignment(rows));
+  }
+  return out;
+}
+
 function formatShortDate(value) {
   if (!value) return null;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-/** Normalize API timeline strings and derive from SLA when the backend omits or aliases `timeline_status`. */
-function canonicalApplicationTimeline(a) {
-  const raw = a.timeline_status ?? a.timelineStatus ?? a.TimelineStatus;
-  const k = String(raw ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_-]+/g, '');
-
-  if (k === 'delayed' || k === 'overdue' || k === 'late') return 'delayed';
-  if (k === 'tobedelayed' || k === 'atrisk') return 'tobedelayed';
-  if (k === 'ontime') return 'ontime';
-
-  const completed = Boolean(a.is_completed);
-  const allowed = Number(a.days_allowed);
-  const taken = Number(a.days_taken);
-  const remRaw = a.days_remaining;
-  const rem = remRaw === null || remRaw === '' || remRaw === undefined ? NaN : Number(remRaw);
-
-  if (Number.isFinite(allowed) && Number.isFinite(taken) && taken > allowed) return 'delayed';
-  if (!completed && Number.isFinite(rem) && rem < 0) return 'delayed';
-  if (!completed && Number.isFinite(allowed) && Number.isFinite(taken)) {
-    const inferredRem = allowed - taken;
-    if (inferredRem <= 5 && inferredRem >= 0 && taken <= allowed) return 'tobedelayed';
-  }
-
-  if (k) return k;
-  return 'ontime';
-}
-
 export default function Applications() {
   const { token, user } = useAuth();
   const { isDark } = useThemeMode();
+  const params = useLocalSearchParams();
   const getToken = () => token;
   const staffId = getMonitoringStaffId(user);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [filterKey, setFilterKey] = useState('');
   const [expandedApps, setExpandedApps] = useState({});
+
+  useEffect(() => {
+    const raw = params.filter;
+    if (raw === undefined) return;
+    const f = Array.isArray(raw) ? raw[0] : raw;
+    const key = String(f ?? '').trim().toLowerCase();
+    if (!VALID_APP_FILTER_KEYS.has(key)) return;
+    setFilterKey(key);
+  }, [params.filter]);
   const applicationsQuery = useQuery(
     async () => {
       const { payload } = await fetchMonitoringPerformance({ staffId, token, getToken });
       const list = extractPerformanceApplications(payload);
-      const data = payload?.data != null ? payload.data : {};
+      const inner = normalizePerformancePayloadData(payload) ?? {};
 
-      return list.map((a, idx) => {
+      const rows = list.map((a, idx) => {
         const is_completed = Boolean(a.is_completed);
         const is_active = Boolean(a.is_active);
         const timeline_status = canonicalApplicationTimeline({
@@ -108,7 +139,7 @@ export default function Applications() {
         timeline_status,
         is_active,
         is_completed,
-        type: data?.filter?.application_type_label || data?.filter?.application_type || 'Application',
+        type: inner?.filter?.application_type_label || inner?.filter?.application_type || 'Application',
         submitted_at: a.submission_date,
         updated_at: a.assignment_date,
         assigned_stage: a.assigned_stage,
@@ -117,28 +148,37 @@ export default function Applications() {
         days_remaining: a.days_remaining,
       };
       });
+
+      return { rows };
     },
     [token, staffId]
     // No SecureStore cache: full applications list exceeds typical SecureStore limits; stale empty cache showed as 0 items.
   );
 
-  const { data: applications = [], loading, errorInfo } = applicationsQuery;
-  const appList = Array.isArray(applications) ? applications : [];
+  const { data: queryPayload, loading, errorInfo } = applicationsQuery;
+  const appList =
+    queryPayload && Array.isArray(queryPayload.rows)
+      ? queryPayload.rows
+      : [];
+  const dedupedList = useMemo(() => dedupeApplicationsByApplicationId(appList), [appList]);
 
   const queryText = search.trim().toLowerCase();
   const filteredList = useMemo(() => {
-    return appList.filter((a) => {
+    const source = filterKey === 'unique' ? dedupedList : appList;
+    return source.filter((a) => {
       const timeline = String(a.timeline_status || '').toLowerCase();
 
-      if (filterKey === 'active') {
-        if (!a.is_active || a.is_completed) return false;
-      } else if (filterKey === 'completed') {
-        if (!a.is_completed) return false;
-      } else if (filterKey === 'ontime' || filterKey === 'tobedelayed' || filterKey === 'delayed') {
-        // Timeline chips reflect active workload only — completed rows stay under "Done" / "All".
-        if (a.is_completed) return false;
-        if (!a.is_active) return false;
-        if (timeline !== filterKey) return false;
+      if (filterKey !== '' && filterKey !== 'unique') {
+        if (filterKey === 'active') {
+          if (!a.is_active || a.is_completed) return false;
+        } else if (filterKey === 'completed') {
+          if (!a.is_completed) return false;
+        } else if (filterKey === 'ontime' || filterKey === 'tobedelayed' || filterKey === 'delayed') {
+          // Timeline chips reflect active workload only — completed rows stay under "Done" / "All".
+          if (a.is_completed) return false;
+          if (!a.is_active) return false;
+          if (timeline !== filterKey) return false;
+        }
       }
 
       if (!queryText) return true;
@@ -148,7 +188,7 @@ export default function Applications() {
         .toLowerCase();
       return haystack.includes(queryText);
     });
-  }, [appList, filterKey, queryText]);
+  }, [appList, dedupedList, filterKey, queryText]);
 
   const listSummary = useMemo(() => {
     let active = 0;
@@ -303,16 +343,56 @@ export default function Applications() {
             <View style={styles.headerCardInner}>
               <View style={styles.headerTitleRow}>
                 <Text style={[styles.title, { color: textMain }]}>Applications</Text>
-                <View style={[styles.countPill, { backgroundColor: isDark ? '#1e293b' : '#ecfdf5', borderColor }]}>
+                <View
+                  style={[
+                    styles.countPill,
+                    {
+                      backgroundColor: isDark ? '#132a22' : '#ecfdf5',
+                      borderColor: isDark ? 'rgba(52,211,153,0.35)' : '#a7f3d0',
+                    },
+                  ]}
+                >
                   <Text style={[styles.countPillText, { color: colors.fdaGreen }]}>{listSummary.total}</Text>
                 </View>
               </View>
-              <Text style={[styles.summaryLine, { color: textMuted }]}>
-                {listSummary.active} active · {listSummary.done} done · {listSummary.issues} need attention
-              </Text>
-              <Text style={[styles.subtitle, { color: textMuted }]}>
-                {filteredList.length} shown after search & filters
-              </Text>
+              <View style={styles.summaryStatsRow}>
+                <View
+                  style={[
+                    styles.summaryStatPill,
+                    { backgroundColor: isDark ? '#1a2744' : '#eff6ff', borderColor: isDark ? 'rgba(96,165,250,0.25)' : '#bfdbfe' },
+                  ]}
+                >
+                  <Text style={[styles.summaryStatNumber, { color: colors.fdaBlue }]}>{listSummary.active}</Text>
+                  <Text style={[styles.summaryStatLabel, { color: isDark ? '#93c5fd' : colors.fdaBlue }]}> active</Text>
+                </View>
+                <View
+                  style={[
+                    styles.summaryStatPill,
+                    { backgroundColor: isDark ? '#132a22' : '#ecfdf5', borderColor: isDark ? 'rgba(52,211,153,0.28)' : '#a7f3d0' },
+                  ]}
+                >
+                  <Text style={[styles.summaryStatNumber, { color: colors.success }]}>{listSummary.done}</Text>
+                  <Text style={[styles.summaryStatLabel, { color: isDark ? '#6ee7b7' : '#047857' }]}> done</Text>
+                </View>
+                <View
+                  style={[
+                    styles.summaryStatPill,
+                    { backgroundColor: isDark ? '#3f2a12' : '#fffbeb', borderColor: isDark ? 'rgba(251,191,36,0.35)' : '#fde68a' },
+                  ]}
+                >
+                  <Text style={[styles.summaryStatNumber, { color: colors.warning }]}>{listSummary.issues}</Text>
+                  <Text style={[styles.summaryStatLabel, { color: isDark ? '#fcd34d' : '#b45309' }]}> attention</Text>
+                </View>
+                <View
+                  style={[
+                    styles.summaryStatPill,
+                    { backgroundColor: isDark ? '#134e4a' : '#f0fdfa', borderColor: isDark ? 'rgba(45,212,191,0.35)' : '#99f6e4' },
+                  ]}
+                >
+                  <Text style={[styles.summaryStatNumber, { color: colors.teal }]}>{dedupedList.length}</Text>
+                  <Text style={[styles.summaryStatLabel, { color: isDark ? '#5eead4' : '#0f766e' }]}> unique</Text>
+                </View>
+              </View>
 
               <View style={[styles.searchWrap, { backgroundColor: inputBg, borderColor }]}>
                 <Ionicons name="search-outline" size={20} color={textMuted} />
@@ -386,10 +466,10 @@ export default function Applications() {
       chipInactiveBg,
       chipInactiveBorder,
       appList.length,
-      filteredList.length,
       search,
       filterKey,
       listSummary,
+      dedupedList.length,
     ]
   );
 
@@ -456,16 +536,31 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 20, fontWeight: '900', letterSpacing: -0.4, flex: 1 },
   countPill: {
-    minWidth: 40,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    minWidth: 34,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: radius.pill,
     borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  countPillText: { fontSize: 15, fontWeight: '900' },
-  summaryLine: { fontSize: 13, fontWeight: '700', marginTop: spacing.sm, lineHeight: 18 },
-  subtitle: { fontSize: 12, marginTop: 6, lineHeight: 17, fontWeight: '600' },
+  countPillText: { fontSize: 13, fontWeight: '900', letterSpacing: -0.2 },
+  summaryStatsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+  },
+  summaryStatPill: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+  },
+  summaryStatNumber: { fontSize: 13, fontWeight: '900', letterSpacing: -0.25 },
+  summaryStatLabel: { fontSize: 10, fontWeight: '800' },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',

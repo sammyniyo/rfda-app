@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 import { RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,15 +20,60 @@ import FriendlyErrorBanner from '../../components/FriendlyErrorBanner';
 
 const STATUS_FILTERS = [
   { key: '', label: 'All' },
+  { key: 'open', label: 'Open' },
   { key: 'pending', label: 'Not started' },
   { key: 'in_progress', label: 'Active' },
+  { key: 'due_soon', label: 'Due soon' },
   { key: 'completed', label: 'Done' },
 ];
+
+const VALID_TASK_FILTER_KEYS = new Set(STATUS_FILTERS.map((s) => s.key));
 
 function normalizeDate(value) {
   if (!value) return null;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function humanTaskStatus(status) {
+  const s = String(status || 'pending');
+  if (s === 'completed') return 'Completed';
+  if (s === 'review') return 'In review';
+  if (s === 'in_progress') return 'Active';
+  if (s === 'pending') return 'Not started';
+  return s.replace(/_/g, ' ');
+}
+
+/** Clear deadline copy aligned with list badges (due within 72h includes overdue). */
+function deadlineSummary(due, isDone, now = new Date()) {
+  if (isDone) return { dateLine: null, relLine: 'No active deadline', tone: 'done' };
+  if (!due) return { dateLine: 'No due date on file', relLine: null, tone: 'muted' };
+  const ms = due.getTime() - now.getTime();
+  const dateLine = due.toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  let relLine;
+  let tone;
+  if (ms < 0) {
+    const daysOver = Math.ceil(-ms / 86400000);
+    relLine = daysOver <= 1 ? 'Past deadline' : `${daysOver} days overdue`;
+    tone = 'late';
+  } else {
+    const h = Math.floor(ms / 3600000);
+    if (h < 24) {
+      relLine = h <= 0 ? 'Due now' : `Due in ${h}h`;
+      tone = 'soon';
+    } else {
+      const d = Math.floor(ms / 86400000);
+      relLine = d === 1 ? 'Due tomorrow' : `Due in ${d} days`;
+      tone = d <= 3 ? 'soon' : 'ok';
+    }
+  }
+  return { dateLine, relLine, tone };
 }
 
 function progressBuckets(tasks) {
@@ -58,11 +104,25 @@ function progressBuckets(tasks) {
 export default function Tasks() {
   const { token, user } = useAuth();
   const { isDark } = useThemeMode();
+  const params = useLocalSearchParams();
   const getToken = () => token;
   const staffId = getMonitoringStaffId(user);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    const raw = params.filter;
+    if (raw === undefined) return;
+    const f = Array.isArray(raw) ? raw[0] : raw;
+    const key = String(f ?? '').trim().toLowerCase();
+    if (key === 'review') {
+      setStatusFilter('completed');
+      return;
+    }
+    if (!VALID_TASK_FILTER_KEYS.has(key)) return;
+    setStatusFilter(key);
+  }, [params.filter]);
   const tasksQuery = useQuery(
     async () => {
       const { payload } = await fetchMonitoringPerformance({ staffId, token, getToken });
@@ -78,10 +138,23 @@ export default function Tasks() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const now = new Date();
+    const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
     return taskList.filter((task) => {
-      if (statusFilter === 'completed') {
-        if (task.status !== 'completed' && task.status !== 'review') return false;
+      const status = String(task.status || 'pending');
+      const due = normalizeDate(task.due_date);
+      const isDone = status === 'completed' || status === 'review';
+
+      if (statusFilter === 'open') {
+        if (isDone) return false;
+      } else if (statusFilter === 'due_soon') {
+        if (isDone) return false;
+        if (!due) return false;
+        if (due > in72h) return false;
+      } else if (statusFilter === 'completed') {
+        if (!isDone) return false;
       } else if (statusFilter && task.status !== statusFilter) return false;
+
       if (!q) return true;
       return (
         String(task.title || '').toLowerCase().includes(q) ||
@@ -90,7 +163,7 @@ export default function Tasks() {
     });
   }, [taskList, statusFilter, search]);
 
-  const metrics = useMemo(() => progressBuckets(filtered), [filtered]);
+  const metrics = useMemo(() => progressBuckets(taskList), [taskList]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -101,7 +174,14 @@ export default function Tasks() {
     }
   };
 
-  if (loading && taskList.length === 0 && !errorInfo) return <TasksSkeleton />;
+  if (loading && taskList.length === 0 && !errorInfo) {
+    const loadBg = isDark ? '#0b1220' : colors.background;
+    return (
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: loadBg }]} edges={['top', 'left', 'right']}>
+        <TasksSkeleton />
+      </SafeAreaView>
+    );
+  }
 
   const pageBg = isDark ? '#0b1220' : colors.background;
   const cardBg = isDark ? '#111827' : colors.card;
@@ -210,10 +290,14 @@ export default function Tasks() {
             task.days_remaining != null && task.days_remaining !== '' ? `${task.days_remaining}d` : '—';
           const sla = task.timeline_status ? timelineStatusLabel(task.timeline_status) : '—';
           const borderSubtle = isDark ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)';
+          const dl = deadlineSummary(due, !activeForDue);
 
           const statusBadgeStyle = isDark
             ? { backgroundColor: 'rgba(33,77,134,0.45)', color: '#93c5fd' }
             : { backgroundColor: '#eef2ff', color: colors.fdaBlue };
+          const timelineBadgeStyle = isDark
+            ? { backgroundColor: 'rgba(15,94,71,0.35)', color: '#86efac' }
+            : { backgroundColor: '#d1fae5', color: colors.fdaGreen };
           const priorityBase = isDark
             ? { backgroundColor: 'rgba(148,163,184,0.2)', color: textMuted }
             : { backgroundColor: '#f2f4f7', color: colors.textMuted };
@@ -227,6 +311,47 @@ export default function Tasks() {
             ? { backgroundColor: 'rgba(217,119,6,0.28)', color: '#fcd34d' }
             : { backgroundColor: '#fff6ea', color: colors.warning };
 
+          const stripBg =
+            dl.tone === 'late'
+              ? isDark
+                ? 'rgba(220,38,38,0.12)'
+                : '#fff1f2'
+              : dl.tone === 'soon'
+                ? isDark
+                  ? 'rgba(217,119,6,0.14)'
+                  : '#fffbeb'
+                : dl.tone === 'ok'
+                  ? isDark
+                    ? 'rgba(59,130,246,0.12)'
+                    : '#eff6ff'
+                  : dl.tone === 'done'
+                    ? isDark
+                      ? 'rgba(16,185,129,0.1)'
+                      : '#ecfdf5'
+                    : isDark
+                      ? 'rgba(148,163,184,0.1)'
+                      : '#f1f5f9';
+          const stripBorder =
+            dl.tone === 'late'
+              ? isDark
+                ? 'rgba(248,113,113,0.35)'
+                : '#fecdd3'
+              : dl.tone === 'soon'
+                ? isDark
+                  ? 'rgba(251,191,36,0.35)'
+                  : '#fde68a'
+                : isDark
+                  ? 'rgba(148,163,184,0.25)'
+                  : '#e2e8f0';
+          const stripIcon =
+            dl.tone === 'late'
+              ? colors.danger
+              : dl.tone === 'soon'
+                ? colors.warning
+                : dl.tone === 'muted'
+                  ? textSubtle
+                  : colors.fdaGreen;
+
           return (
             <FadeInView key={task.id ?? i} delay={180 + i * 28} translateY={8}>
               <PressableScale
@@ -239,8 +364,12 @@ export default function Tasks() {
               >
                 <View style={styles.taskCardInner}>
                   <View style={styles.badgesRow}>
-                    <Text style={[styles.badgeText, statusBadgeStyle]}>
-                      {String(task.status || 'pending').replace('_', ' ')}
+                    <Text style={[styles.badgeText, statusBadgeStyle]}>{humanTaskStatus(task.status)}</Text>
+                    <Text
+                      style={[styles.badgeText, timelineBadgeStyle, styles.badgeTimeline]}
+                      numberOfLines={1}
+                    >
+                      Timeline · {sla}
                     </Text>
                     {task.priority ? (
                       <Text
@@ -258,17 +387,41 @@ export default function Tasks() {
                   <Text style={[styles.taskDesc, { color: textMuted }]} numberOfLines={2}>
                     {task.description?.trim() ? task.description : 'No description'}
                   </Text>
+
+                  {dl.dateLine || dl.relLine ? (
+                    <View style={[styles.deadlineStrip, { backgroundColor: stripBg, borderColor: stripBorder }]}>
+                      <Ionicons name="calendar-outline" size={20} color={stripIcon} style={styles.deadlineStripIcon} />
+                      <View style={styles.deadlineStripText}>
+                        <Text style={[styles.deadlineStripLabel, { color: textSubtle }]}>Deadline</Text>
+                        {dl.dateLine ? (
+                          <Text style={[styles.deadlineStripPrimary, { color: textMain }]}>{dl.dateLine}</Text>
+                        ) : null}
+                        {dl.relLine ? (
+                          <Text
+                            style={[
+                              styles.deadlineStripSecondary,
+                              {
+                                color:
+                                  dl.tone === 'late'
+                                    ? colors.danger
+                                    : dl.tone === 'soon'
+                                      ? colors.warning
+                                      : textMuted,
+                              },
+                            ]}
+                          >
+                            {dl.relLine}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  ) : null}
+
                   <View style={[styles.taskMetaGrid, { borderTopColor: borderSubtle }]}>
                     <View style={styles.taskMetaCell}>
-                      <Text style={[styles.taskMetaLabel, { color: textSubtle }]}>Due</Text>
-                      <Text style={[styles.taskMetaValue, { color: textMain }]}>
-                        {due ? due.toLocaleDateString([], { day: '2-digit', month: 'short' }) : '—'}
-                      </Text>
-                    </View>
-                    <View style={[styles.taskMetaCell, styles.taskMetaCellBorder, { borderLeftColor: borderSubtle }]}>
-                      <Text style={[styles.taskMetaLabel, { color: textSubtle }]}>SLA</Text>
-                      <Text style={[styles.taskMetaValue, { color: textMain }]} numberOfLines={1}>
-                        {daysRem} · {sla}
+                      <Text style={[styles.taskMetaLabel, { color: textSubtle }]}>SLA window</Text>
+                      <Text style={[styles.taskMetaValue, { color: textMain }]} numberOfLines={2}>
+                        {daysRem} remaining · {sla}
                       </Text>
                     </View>
                     <View style={[styles.taskMetaCell, styles.taskMetaCellBorder, { borderLeftColor: borderSubtle }]}>
@@ -369,8 +522,24 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     textTransform: 'capitalize',
   },
+  badgeTimeline: { textTransform: 'none', flexShrink: 1, maxWidth: '58%' },
   taskTitle: { fontSize: 16, fontWeight: '800', marginTop: 10, lineHeight: 22, letterSpacing: -0.2 },
   taskDesc: { fontSize: 12, lineHeight: 18, marginTop: 6 },
+  deadlineStrip: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: spacing.md,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 10,
+  },
+  deadlineStripIcon: { marginTop: 2 },
+  deadlineStripText: { flex: 1, minWidth: 0 },
+  deadlineStripLabel: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 },
+  deadlineStripPrimary: { fontSize: 15, fontWeight: '800', lineHeight: 20 },
+  deadlineStripSecondary: { fontSize: 12.5, fontWeight: '700', marginTop: 2, lineHeight: 17 },
   taskMetaGrid: {
     flexDirection: 'row',
     marginTop: spacing.md,

@@ -17,6 +17,7 @@ import {
   fetchMonitoringPerformance,
   normalizePerformancePayloadData,
 } from '../../lib/monitoringPerformance';
+import { canonicalApplicationTimeline } from '../../lib/applicationTimeline';
 import { getMonitoringStaffId } from '../../lib/staffSession';
 import FadeInView from '../../components/FadeInView';
 import PressableScale from '../../components/PressableScale';
@@ -58,27 +59,46 @@ function ReportStatRow({ icon, label, value, valueColor, textMain, textMuted }) 
   );
 }
 
-/** Large headline numbers for the dashboard KPI grid. */
-function KpiTile({ label, value, valueColor, textMuted, bg, dense }) {
-  return (
-    <View style={[styles.kpiTile, { backgroundColor: bg }]}>
-      <Text
-        style={[
-          dense ? styles.kpiTileValueDense : styles.kpiTileValue,
-          tabularNumberStyle,
-          { color: valueColor },
-        ]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.6}
-      >
-        {value}
-      </Text>
-      <Text style={[styles.kpiTileLabel, { color: textMuted }]} numberOfLines={2}>
-        {label}
-      </Text>
+/** KPI tile with icon + soft tint (dashboard “At a glance”). */
+function KpiTile({ label, value, valueColor, textMuted, bg, dense, icon, isDark, onPress }) {
+  const bubbleBg = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.88)';
+  const border = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15, 23, 42, 0.06)';
+  const inner = (
+    <View style={styles.kpiTileRow}>
+      <View style={[styles.kpiIconBubble, { backgroundColor: bubbleBg }]}>
+        <Ionicons name={icon} size={17} color={valueColor} />
+      </View>
+      <View style={styles.kpiTileTextCol}>
+        <Text
+          style={[
+            dense ? styles.kpiTileValueDense : styles.kpiTileValue,
+            tabularNumberStyle,
+            { color: valueColor },
+          ]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.58}
+        >
+          {value}
+        </Text>
+        <Text style={[styles.kpiTileLabel, { color: textMuted }]} numberOfLines={2}>
+          {label}
+        </Text>
+      </View>
     </View>
   );
+  if (onPress) {
+    return (
+      <PressableScale
+        style={[styles.kpiTile, { backgroundColor: bg, borderColor: border }]}
+        onPress={onPress}
+        hapticType="light"
+      >
+        {inner}
+      </PressableScale>
+    );
+  }
+  return <View style={[styles.kpiTile, { backgroundColor: bg, borderColor: border }]}>{inner}</View>;
 }
 
 /** Stacked mix of delayed / at risk / active / completed (scaled if API totals exceed assignments). */
@@ -228,18 +248,23 @@ export default function Dashboard() {
 
   const apps = useMemo(
     () =>
-      rawApps.map((a, index) => ({
-        id: a.assignment_id ?? a.application_id ?? index + 1,
-        trackingNo: a.tracking_no ?? a.reference_number ?? `APP-${index + 1}`,
-        applicant: a.applicant ?? a.company_name ?? 'Applicant',
-        timelineStatus: String(a.timeline_status || 'ontime').toLowerCase(),
-        stage: a.assigned_stage ?? 'Review',
-        daysAllowed: Number(a.days_allowed ?? 0),
-        daysTaken: Number(a.days_taken ?? 0),
-        daysRemaining: Number(a.days_remaining ?? 0),
-        assignmentDate: a.assignment_date ?? null,
-        submissionDate: a.submission_date ?? null,
-      })),
+      rawApps.map((a, index) => {
+        const is_completed = Boolean(a.is_completed);
+        const is_active = Boolean(a.is_active);
+        const timelineStatus = canonicalApplicationTimeline({ ...a, is_completed, is_active });
+        return {
+          id: a.assignment_id ?? a.application_id ?? index + 1,
+          trackingNo: a.tracking_no ?? a.reference_number ?? `APP-${index + 1}`,
+          applicant: a.applicant ?? a.company_name ?? 'Applicant',
+          timelineStatus: String(timelineStatus || 'ontime').toLowerCase(),
+          stage: a.assigned_stage ?? 'Review',
+          daysAllowed: Number(a.days_allowed ?? 0),
+          daysTaken: Number(a.days_taken ?? 0),
+          daysRemaining: Number(a.days_remaining ?? 0),
+          assignmentDate: a.assignment_date ?? null,
+          submissionDate: a.submission_date ?? null,
+        };
+      }),
     [rawApps]
   );
 
@@ -273,9 +298,13 @@ export default function Dashboard() {
   const lastSyncedAt = [performanceQuery.lastSyncedAt, notificationsQuery.lastSyncedAt].filter(Boolean).sort().reverse()[0];
 
   const riskAppsLive = apps.filter((a) => a.timelineStatus === 'tobedelayed').length;
+  const activeAssignmentsLive =
+    rawApps.length > 0
+      ? rawApps.filter((a) => Boolean(a.is_active) && !Boolean(a.is_completed)).length
+      : 0;
   const appReport = {
     assignments: Math.max(heroAppCount, Number(totalAppAssignments ?? appSummary?.total ?? 0)),
-    active: Number(appSummary?.active ?? 0),
+    active: rawApps.length > 0 ? activeAssignmentsLive : Number(appSummary?.active ?? 0),
     completed: Number(appSummary?.completed ?? 0),
     ontime: Number(appSummary?.ontime ?? 0),
     atRisk: apps.length > 0 ? riskAppsLive : Number(appSummary?.at_risk ?? 0),
@@ -306,6 +335,18 @@ export default function Dashboard() {
   }
 
   const toggleRow = (id) => setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const openApplications = (filterKey) => {
+    if (filterKey) {
+      router.push(`/(app)/applications?filter=${encodeURIComponent(filterKey)}`);
+    } else {
+      router.push('/(app)/applications');
+    }
+  };
+
+  const goToTasks = (filterKey) => {
+    router.push(`/(app)/tasks?filter=${encodeURIComponent(filterKey)}`);
+  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -367,7 +408,7 @@ export default function Dashboard() {
   }, []);
 
   if (perfLoading && !performanceData && !perfErrorInfo) {
-    return <AuthLoadingScreen message="Loading your dashboard…" />;
+    return <AuthLoadingScreen message="Loading dashboard…" />;
   }
 
   const pageBg = isDark ? '#0b1220' : colors.background;
@@ -431,6 +472,29 @@ export default function Dashboard() {
               pointerEvents="none"
             />
             <View style={styles.heroInner}>
+              <Text style={[styles.heroKicker, { color: isDark ? '#94a3b8' : '#5c6d64' }]}>
+                Rwanda FDA · Staff workspace
+              </Text>
+              <View style={styles.heroTopRow}>
+                <View
+                  style={[
+                    styles.logoWrap,
+                    isDark ? styles.logoWrapDark : styles.logoWrapLight,
+                  ]}
+                >
+                  <Image source={require('../../assets/RwandaFDA.png')} style={styles.logo} resizeMode="contain" />
+                </View>
+                <View style={styles.heroTextCol}>
+                  <Text style={[styles.heroGreeting, { color: textMain }]}>
+                    {greetingForHour()}, {displayName}
+                  </Text>
+                  <Text style={[styles.heroTagline, { color: textMuted }]} numberOfLines={2}>
+                    {user?.dutyStation
+                      ? `${user.dutyStation} — applications, tasks, and alerts in one place.`
+                      : 'Your monitoring hub for applications, tasks, and team alerts.'}
+                  </Text>
+                </View>
+              </View>
               <View style={styles.heroDateTimeColumn}>
                 <View
                   style={[
@@ -458,85 +522,74 @@ export default function Dashboard() {
                   <Text style={[styles.heroClockCaption, { color: textMuted }]}>Local time</Text>
                 </View>
               </View>
-              <Text style={[styles.heroKicker, { color: isDark ? '#94a3b8' : '#5c6d64' }]}>
-                Rwanda FDA · Staff workspace
-              </Text>
-              <View style={styles.heroTopRow}>
-                <View
-                  style={[
-                    styles.logoWrap,
-                    isDark ? styles.logoWrapDark : styles.logoWrapLight,
-                  ]}
-                >
-                  <Image source={require('../../assets/RwandaFDA.png')} style={styles.logo} resizeMode="contain" />
-                </View>
-                <View style={styles.heroTextCol}>
-                  <Text style={[styles.heroGreeting, { color: textMain }]}>
-                    {greetingForHour()}, {displayName}
-                  </Text>
-                  <Text style={[styles.heroTagline, { color: textMuted }]} numberOfLines={2}>
-                    {user?.dutyStation
-                      ? `${user.dutyStation} — applications, tasks, and alerts in one place.`
-                      : 'Your monitoring hub for applications, tasks, and team alerts.'}
-                  </Text>
-                </View>
-              </View>
             </View>
           </View>
         </FadeInView>
 
         <FadeInView delay={48} translateY={10}>
           <View style={[styles.kpiCard, { backgroundColor: cardBg, borderColor }]}>
-            <Text style={[styles.kpiCardTitle, { color: textMuted }]}>At a glance</Text>
+            <Text style={[styles.kpiCardTitle, { color: textMuted }]}>Overview</Text>
 
             <Text style={[styles.kpiGroupLabel, { color: textMuted }]}>Applications</Text>
             <View style={styles.kpiGrid}>
               <View style={styles.kpiRow}>
                 <KpiTile
-                  label="Assignments (YTD)"
+                  icon="folder-outline"
+                  label="Assignments"
                   value={formatStat(appReport.assignments)}
                   valueColor={colors.fdaBlue}
                   textMuted={textMuted}
-                  bg={isDark ? 'rgba(33,77,134,0.22)' : '#e8f0fc'}
+                  isDark={isDark}
+                  bg={isDark ? 'rgba(59,130,246,0.18)' : '#e0eaff'}
+                  onPress={() => openApplications('')}
                 />
                 <KpiTile
-                  label="Active"
+                  icon="pulse-outline"
+                  label="In progress"
                   value={formatStat(appReport.active)}
-                  valueColor={textMain}
+                  valueColor={isDark ? '#c4b5fd' : '#5b21b6'}
                   textMuted={textMuted}
-                  bg={isDark ? 'rgba(148,163,184,0.1)' : '#f1f5f9'}
+                  isDark={isDark}
+                  bg={isDark ? 'rgba(139,92,246,0.2)' : '#ede9fe'}
+                  onPress={() => openApplications('active')}
                 />
               </View>
               <View style={styles.kpiRow}>
                 <KpiTile
-                  label="At risk"
+                  icon="alert-circle-outline"
+                  label="Needs attention"
                   value={formatStat(appReport.atRisk)}
                   valueColor={appReport.atRisk > 0 ? colors.warning : textMuted}
                   textMuted={textMuted}
+                  isDark={isDark}
                   bg={
                     appReport.atRisk > 0
                       ? isDark
-                        ? 'rgba(217,119,6,0.2)'
-                        : '#fffbeb'
+                        ? 'rgba(245,158,11,0.2)'
+                        : '#fff7ed'
                       : isDark
-                        ? 'rgba(148,163,184,0.1)'
-                        : '#f1f5f9'
+                        ? 'rgba(148,163,184,0.12)'
+                        : '#f8fafc'
                   }
+                  onPress={() => openApplications('tobedelayed')}
                 />
                 <KpiTile
-                  label="Delayed"
+                  icon="hourglass-outline"
+                  label="Behind schedule"
                   value={formatStat(appReport.delayed)}
                   valueColor={appReport.delayed > 0 ? colors.danger : textMuted}
                   textMuted={textMuted}
+                  isDark={isDark}
                   bg={
                     appReport.delayed > 0
                       ? isDark
-                        ? 'rgba(220,38,38,0.18)'
-                        : '#fef2f2'
+                        ? 'rgba(248,113,113,0.18)'
+                        : '#ffe4e6'
                       : isDark
-                        ? 'rgba(148,163,184,0.1)'
-                        : '#f1f5f9'
+                        ? 'rgba(148,163,184,0.12)'
+                        : '#f8fafc'
                   }
+                  onPress={() => openApplications('delayed')}
                 />
               </View>
             </View>
@@ -545,43 +598,55 @@ export default function Dashboard() {
             <View style={styles.kpiGrid}>
               <View style={styles.kpiRow}>
                 <KpiTile
-                  label="Open"
+                  icon="list-outline"
+                  label="Still open"
                   value={formatStat(heroOpenTasks)}
                   valueColor={colors.fdaGreen}
                   textMuted={textMuted}
-                  bg={isDark ? 'rgba(15,94,71,0.24)' : colors.fdaGreenSoft}
+                  isDark={isDark}
+                  bg={isDark ? 'rgba(16,185,129,0.22)' : '#d1fae5'}
+                  onPress={() => goToTasks('open')}
                 />
                 <KpiTile
-                  label="Completion"
+                  icon="pie-chart-outline"
+                  label="All done"
                   value={`${formatStat(completionRate)}%`}
-                  valueColor={colors.fdaGreen}
+                  valueColor={isDark ? '#2dd4bf' : '#0f766e'}
                   textMuted={textMuted}
-                  bg={isDark ? 'rgba(15,94,71,0.16)' : '#ecfdf5'}
+                  isDark={isDark}
+                  bg={isDark ? 'rgba(45,212,191,0.18)' : '#ccfbf1'}
+                  onPress={() => goToTasks('completed')}
                 />
               </View>
               <View style={styles.kpiRow}>
                 <KpiTile
-                  label="Finished / total"
-                  value={`${formatStat(taskCompletedForReport)} / ${formatStat(taskTotalForReport)}`}
-                  valueColor={textMain}
+                  icon="checkmark-done-outline"
+                  label="Completed"
+                  value={`${formatStat(taskCompletedForReport)} of ${formatStat(taskTotalForReport)}`}
+                  valueColor={isDark ? '#a5b4fc' : '#4338ca'}
                   textMuted={textMuted}
-                  bg={isDark ? 'rgba(148,163,184,0.1)' : '#f1f5f9'}
+                  isDark={isDark}
+                  bg={isDark ? 'rgba(99,102,241,0.22)' : '#e0e7ff'}
                   dense
+                  onPress={() => goToTasks('completed')}
                 />
                 <KpiTile
-                  label="Due in 72h"
+                  icon="time-outline"
+                  label="Due soon"
                   value={formatStat(dueSoonTasks)}
                   valueColor={dueSoonTasks > 0 ? colors.warning : textMuted}
                   textMuted={textMuted}
+                  isDark={isDark}
                   bg={
                     dueSoonTasks > 0
                       ? isDark
-                        ? 'rgba(217,119,6,0.2)'
-                        : '#fffbeb'
+                        ? 'rgba(251,191,36,0.22)'
+                        : '#fef3c7'
                       : isDark
-                        ? 'rgba(148,163,184,0.1)'
-                        : '#f1f5f9'
+                        ? 'rgba(148,163,184,0.12)'
+                        : '#f8fafc'
                   }
+                  onPress={() => goToTasks('due_soon')}
                 />
               </View>
             </View>
@@ -589,7 +654,7 @@ export default function Dashboard() {
         </FadeInView>
 
         <FadeInView delay={55} translateY={8}>
-          <Text style={[styles.reportsSectionLabel, { color: textMuted }]}>Summary reports</Text>
+          <Text style={[styles.reportsSectionLabel, { color: textMuted }]}>Reports</Text>
           <View style={[styles.reportCard, { backgroundColor: cardBg, borderColor }]}>
             <View style={[styles.reportAccent, { backgroundColor: colors.fdaBlue }]} />
             <View style={styles.reportInner}>
@@ -604,7 +669,7 @@ export default function Dashboard() {
                   </View>
                   <View style={styles.reportHeadText}>
                     <Text style={[styles.reportTitle, { color: textMain }]}>Applications</Text>
-                    <Text style={[styles.reportSubtitle, { color: textMuted }]}>Assignments & filings (YTD)</Text>
+                    <Text style={[styles.reportSubtitle, { color: textMuted }]}>Applications you’re working on</Text>
                   </View>
                   <Ionicons name={reportAppsExpanded ? 'chevron-up' : 'chevron-down'} size={22} color={textMuted} />
                 </View>
@@ -651,7 +716,7 @@ export default function Dashboard() {
                   >
                     {formatStat(appReport.assignments)}
                   </Text>
-                  <Text style={[styles.reportHeroLabel, { color: textMuted }]}>Assignments (YTD)</Text>
+                  <Text style={[styles.reportHeroLabel, { color: textMuted }]}>Total assignments</Text>
                   <ApplicationsMixBar
                     appReport={appReport}
                     trackColor={isDark ? 'rgba(148,163,184,0.15)' : '#e2e8f0'}
@@ -766,7 +831,7 @@ export default function Dashboard() {
                     >
                       {formatStat(dueSoonTasks)}
                     </Text>
-                    {' due in 72h'}
+                    {' due soon'}
                   </Text>
                 ) : null}
               </PressableScale>
@@ -816,7 +881,7 @@ export default function Dashboard() {
                     />
                     <ReportStatRow
                       icon="time-outline"
-                      label="Due within 72h"
+                      label="Due soon"
                       value={formatStat(dueSoonTasks)}
                       valueColor={dueSoonTasks > 0 ? colors.warning : textMain}
                       textMain={textMain}
@@ -895,7 +960,7 @@ export default function Dashboard() {
             <View style={styles.sectionTop}>
               <View>
                 <Text style={[styles.sectionTitle, { color: textMain }]}>Applications</Text>
-                <Text style={[styles.sectionSubtitle, { color: textMuted }]}>Tap a row to expand details</Text>
+                <Text style={[styles.sectionSubtitle, { color: textMuted }]}>Tap a row for more</Text>
               </View>
               <PressableScale onPress={() => router.push('/(app)/applications')} hapticType="selection">
                 <Text style={styles.sectionLink}>Full list</Text>
@@ -904,7 +969,7 @@ export default function Dashboard() {
             <View style={[styles.tableHead, { borderColor }]}>
               <Text style={[styles.thRef, { color: textMuted }]}>Ref</Text>
               <Text style={[styles.thStatus, { color: textMuted }]}>Status</Text>
-              <Text style={[styles.thDays, { color: textMuted }]}>Days Left</Text>
+              <Text style={[styles.thDays, { color: textMuted }]}>Days left</Text>
             </View>
             {topApps.length === 0 ? (
               <Text style={[styles.emptyText, { color: textMuted }]}>No application records available.</Text>
@@ -936,8 +1001,8 @@ export default function Dashboard() {
                           <Text style={[styles.metaValue, { color: textMain }]}>{item.stage}</Text>
                         </View>
                         <View style={styles.expandedMetaRow}>
-                          <Text style={[styles.metaLabel, { color: textMuted }]}>Allowed/Taken:</Text>
-                          <Text style={[styles.metaValue, { color: textMain }]}>{item.daysAllowed} / {item.daysTaken} days</Text>
+                          <Text style={[styles.metaLabel, { color: textMuted }]}>Days used:</Text>
+                          <Text style={[styles.metaValue, { color: textMain }]}>{item.daysTaken} of {item.daysAllowed}</Text>
                         </View>
                         <View style={styles.expandedMetaRow}>
                           <Text style={[styles.metaLabel, { color: textMuted }]}>Assigned:</Text>
@@ -973,14 +1038,14 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   heroDateTimeColumn: {
-    marginBottom: spacing.sm + 4,
+    marginTop: spacing.md,
     gap: spacing.sm + 2,
   },
   heroTimeBlock: { marginTop: 2 },
   heroClock: { fontSize: 28, fontWeight: '900', letterSpacing: -0.6 },
   heroClockCaption: { fontSize: 11, fontWeight: '700', marginTop: 4 },
-  heroKicker: { fontSize: 10, fontWeight: '800', letterSpacing: 1.4, textTransform: 'uppercase', marginBottom: spacing.sm + 4 },
-  heroTopRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 4 },
+  heroKicker: { fontSize: 10, fontWeight: '800', letterSpacing: 1.4, textTransform: 'uppercase', marginBottom: spacing.sm + 2 },
+  heroTopRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 4, marginBottom: 2 },
   heroTextCol: { flex: 1 },
   logoWrap: {
     width: 48,
@@ -1060,7 +1125,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.45,
     textTransform: 'uppercase',
-    marginBottom: spacing.xs + 2,
+    marginBottom: spacing.sm,
     marginTop: 0,
   },
   kpiGroupLabelSpaced: {
@@ -1073,9 +1138,19 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     paddingVertical: spacing.sm + 2,
     paddingHorizontal: spacing.sm + 2,
-    minHeight: 72,
+    minHeight: 76,
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  kpiTileRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  kpiIconBubble: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
     justifyContent: 'center',
   },
+  kpiTileTextCol: { flex: 1, minWidth: 0 },
   kpiTileValue: {
     fontSize: 22,
     fontWeight: '900',
@@ -1091,9 +1166,9 @@ const styles = StyleSheet.create({
   kpiTileLabel: {
     fontSize: 9,
     fontWeight: '800',
-    marginTop: 4,
+    marginTop: 3,
     lineHeight: 12,
-    letterSpacing: 0.15,
+    letterSpacing: 0.2,
     textTransform: 'uppercase',
   },
   reportIconWrap: {

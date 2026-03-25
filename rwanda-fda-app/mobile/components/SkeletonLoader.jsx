@@ -28,25 +28,9 @@ export function SkeletonBox({ width, height, style }) {
 
 export function TasksSkeleton() {
   return (
-    <View style={styles.container}>
-      <View style={styles.card}>
-        <SkeletonBox height={24} width="60%" style={{ marginBottom: 8 }} />
-        <SkeletonBox height={14} width="90%" style={{ marginBottom: 16 }} />
-        <SkeletonBox height={48} style={{ marginBottom: 16 }} />
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <SkeletonBox height={36} style={{ flex: 1 }} />
-          <SkeletonBox height={36} style={{ flex: 1 }} />
-        </View>
-      </View>
-      {[1, 2, 3].map((i) => (
-        <View key={i} style={[styles.card, { flexDirection: 'row', alignItems: 'center' }]}>
-          <SkeletonBox width={44} height={44} style={{ borderRadius: 22, marginRight: 12 }} />
-          <View style={{ flex: 1 }}>
-            <SkeletonBox height={16} width="80%" style={{ marginBottom: 6 }} />
-            <SkeletonBox height={12} width="50%" />
-          </View>
-        </View>
-      ))}
+    <View style={[styles.container, styles.minimalCenter]}>
+      <SkeletonBox height={120} width="100%" style={{ borderRadius: 16, maxWidth: 400 }} />
+      <SkeletonBox height={14} width="40%" style={{ marginTop: 20, alignSelf: 'center' }} />
     </View>
   );
 }
@@ -90,6 +74,13 @@ export function ListSkeleton({ count = 4 }) {
 }
 
 const styles = StyleSheet.create({
+  minimalCenter: {
+    flex: 1,
+    minHeight: 280,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
   container: { padding: 16 },
   card: {
     backgroundColor: '#f8fafc',
