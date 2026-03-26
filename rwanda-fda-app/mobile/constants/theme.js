@@ -1,27 +1,52 @@
+/** Brand green RGB — use with greenAlpha() for consistent tints across screens. */
+export const rgb = {
+  fdaGreen: '13, 107, 82',
+  fdaBlue: '30, 88, 138',
+};
+
+export function greenAlpha(a) {
+  return `rgba(${rgb.fdaGreen}, ${a})`;
+}
+
+export function blueAlpha(a) {
+  return `rgba(${rgb.fdaBlue}, ${a})`;
+}
+
 export const colors = {
-  fdaGreen: '#0f5e47',
-  fdaGreenDark: '#083f31',
-  fdaGreenSoft: '#d8f2e8',
-  fdaGold: '#cf9f2f',
-  fdaGoldLight: '#f5e0a7',
-  fdaBlue: '#214d86',
-  teal: '#0c8c84',
+  fdaGreen: '#0d6b52',
+  fdaGreenDark: '#063d30',
+  fdaGreenSoft: '#e8f4ef',
+  fdaGold: '#b8892a',
+  fdaGoldLight: '#f2e8c8',
+  fdaBlue: '#1e588a',
+  teal: '#0a7d76',
   purple: '#6b3a8e',
   rose: '#d25a7b',
-  background: '#eef2f8',
-  backgroundAlt: '#f5f7fb',
+  background: '#eef1f6',
+  backgroundAlt: '#f6f8fb',
   card: '#ffffff',
-  cardSoft: '#f7f8fd',
-  text: '#101828',
-  textMuted: '#667085',
-  textSubtle: '#98a2b3',
-  border: '#e4e7ec',
-  borderStrong: '#d0d5dd',
+  cardSoft: '#f8fafc',
+  text: '#0f172a',
+  textMuted: '#5c6570',
+  textSubtle: '#8b95a1',
+  border: '#e6e9ef',
+  borderStrong: '#cfd6e0',
   danger: '#dc2626',
   success: '#059669',
   warning: '#d97706',
   black: '#000000',
   shadow: '#0b1220',
+};
+
+/** Solid headers + overlapping sheet (dashboard, profile). */
+export const header = {
+  gradientLight: [colors.fdaGreenDark, colors.fdaGreen, colors.teal],
+  gradientDark: ['#031f19', colors.fdaGreenDark, '#0b1220'],
+  text: '#ffffff',
+  textMuted: 'rgba(255,255,255,0.78)',
+  textSubtle: 'rgba(255,255,255,0.55)',
+  iconChip: 'rgba(255,255,255,0.14)',
+  iconChipBorder: 'rgba(255,255,255,0.22)',
 };
 
 export const spacing = {

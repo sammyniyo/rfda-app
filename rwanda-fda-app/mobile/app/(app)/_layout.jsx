@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useQuery } from '../../hooks/useQuery';
 import { getAuthHeaders, isApiSuccess } from '../../lib/api';
 import { api } from '../../constants/api';
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import AuthLoadingScreen from '../../components/AuthLoadingScreen';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -25,9 +25,9 @@ const TAB_BAR = {
   light: {
     gradient: ['#ffffff', '#f2f4f5'],
     barBorder: 'rgba(0,0,0,0.07)',
-    active: '#0f5e47',
+    active: colors.fdaGreen,
     inactive: '#6b7280',
-    indicator: '#0f5e47',
+    indicator: colors.fdaGreen,
     badgeBg: colors.fdaGreen,
   },
 };
@@ -215,29 +215,16 @@ export default function AppLayout() {
   const { token, loading } = useAuth();
   const router = useRouter();
 
-  /** After logout, navigate out of (app) on the next frame. Cancellable so React Strict Mode / re-runs do not stick on “Signing out…”. */
+  // Imperative navigation — <Redirect> inside a group layout re-fires every render
+  // because the layout stays mounted during the navigation, causing an infinite loop.
   useEffect(() => {
-    if (loading || token) return undefined;
-    let cancelled = false;
-    const frame = requestAnimationFrame(() => {
-      if (cancelled) return;
-      try {
-        router.replace('/');
-      } catch {
-        /* ignore */
-      }
-    });
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frame);
-    };
+    if (!loading && !token) {
+      router.replace('/');
+    }
   }, [loading, token]);
 
-  if (loading) {
-    return <AuthLoadingScreen message="Restoring your session…" />;
-  }
-  if (!token) {
-    return <AuthLoadingScreen message="Signing out…" />;
+  if (loading || !token) {
+    return null;
   }
 
   return <AuthenticatedTabs isDark={isDark} resolvedTheme={resolvedTheme} token={token} />;

@@ -8,7 +8,7 @@ import FriendlyErrorBanner from '../../components/FriendlyErrorBanner';
 import { useAuth } from '../../context/AuthContext';
 import { useThemeMode } from '../../context/ThemeContext';
 import { useQuery } from '../../hooks/useQuery';
-import { colors, spacing, radius, shadow } from '../../constants/theme';
+import { colors, spacing, radius, shadow, header, greenAlpha } from '../../constants/theme';
 import { api } from '../../constants/api';
 import { getAuthHeaders, isApiSuccess } from '../../lib/api';
 import {
@@ -138,6 +138,20 @@ function ApplicationsMixBar({ appReport, trackColor, legendColor }) {
           ))}
       </View>
     </View>
+  );
+}
+
+function QuickLinkCell({ icon, label, textMain, isDark, onPress }) {
+  const chipBg = isDark ? 'rgba(255,255,255,0.08)' : colors.fdaGreenSoft;
+  return (
+    <PressableScale style={styles.quickLinkCell} onPress={onPress} hapticType="light">
+      <View style={[styles.quickLinkIconWrap, { backgroundColor: chipBg }]}>
+        <Ionicons name={icon} size={22} color={colors.fdaGreen} />
+      </View>
+      <Text style={[styles.quickLinkLabel, { color: textMain }]} numberOfLines={2}>
+        {label}
+      </Text>
+    </PressableScale>
   );
 }
 
@@ -427,101 +441,124 @@ export default function Dashboard() {
       >
         {perfErrorInfo ? (
           <FadeInView delay={0} translateY={8}>
-            <FriendlyErrorBanner
-              info={perfErrorInfo}
-              isDark={isDark}
-              onRetry={() => handleRefresh()}
-            />
+            <View style={{ paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
+              <FriendlyErrorBanner
+                info={perfErrorInfo}
+                isDark={isDark}
+                onRetry={() => handleRefresh()}
+              />
+            </View>
           </FadeInView>
         ) : null}
 
+        <LinearGradient
+          colors={isDark ? header.gradientDark : header.gradientLight}
+          locations={[0, 0.45, 1]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.dashboardHeader}
+        >
+          <View style={[styles.dashboardHeaderInner, { paddingHorizontal: spacing.md }]}>
+            <Text style={[styles.dashboardHeaderKicker, { color: header.textSubtle }]}>
+              Rwanda FDA · Staff workspace
+            </Text>
+            <View style={styles.heroTopRow}>
+              <View
+                style={[
+                  styles.logoWrap,
+                  { backgroundColor: header.iconChip, borderColor: header.iconChipBorder },
+                ]}
+              >
+                <Image source={require('../../assets/RwandaFDA.png')} style={styles.logo} resizeMode="contain" />
+              </View>
+              <View style={styles.heroTextCol}>
+                <Text style={[styles.heroGreeting, { color: header.text }]}>
+                  {greetingForHour()}, {displayName}
+                </Text>
+                <Text style={[styles.heroTagline, { color: header.textMuted }]} numberOfLines={2}>
+                  {user?.dutyStation
+                    ? `${user.dutyStation} — applications, tasks, and alerts in one place.`
+                    : 'Your monitoring hub for applications, tasks, and team alerts.'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.heroDateTimeColumn}>
+              <View
+                style={[
+                  styles.heroDatePill,
+                  {
+                    alignSelf: 'stretch',
+                    backgroundColor: header.iconChip,
+                    borderColor: header.iconChipBorder,
+                  },
+                ]}
+              >
+                <Ionicons name="calendar-outline" size={16} color={header.textMuted} />
+                <Text style={[styles.heroDateText, { color: header.text }]}>
+                  {nowTick.toLocaleDateString(undefined, {
+                    weekday: 'long',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                </Text>
+              </View>
+              <View style={styles.heroTimeBlock}>
+                <Text style={[styles.heroClock, { color: header.text }]}>
+                  {nowTick.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+                <Text style={[styles.heroClockCaption, { color: header.textMuted }]}>Local time</Text>
+              </View>
+            </View>
+          </View>
+        </LinearGradient>
+
+        <View
+          style={[
+            styles.dashboardSheet,
+            {
+              backgroundColor: isDark ? cardBg : colors.card,
+              borderColor: isDark ? borderColor : colors.border,
+            },
+          ]}
+        >
         <FadeInView delay={40} translateY={10}>
           <PreviewWebNotice style={{ marginBottom: 12 }} />
         </FadeInView>
 
-        <FadeInView delay={0} translateY={12}>
-          <View
-            style={[
-              styles.heroCard,
-              {
-                borderColor: isDark ? borderColor : 'rgba(15, 94, 71, 0.12)',
-              },
-            ]}
-          >
-            <LinearGradient
-              colors={
-                isDark
-                  ? ['#0c1522', '#121c2e', '#111827']
-                  : ['#f3fcf7', '#eefbf4', '#ffffff']
-              }
-              locations={[0, 0.5, 1]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={
-                isDark
-                  ? ['transparent', 'transparent', 'rgba(15,94,71,0.14)']
-                  : ['transparent', 'rgba(15,94,71,0.04)', 'rgba(15,94,71,0.09)']
-              }
-              locations={[0, 0.55, 1]}
-              start={{ x: 0.3, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-              pointerEvents="none"
-            />
-            <View style={styles.heroInner}>
-              <Text style={[styles.heroKicker, { color: isDark ? '#94a3b8' : '#5c6d64' }]}>
-                Rwanda FDA · Staff workspace
-              </Text>
-              <View style={styles.heroTopRow}>
-                <View
-                  style={[
-                    styles.logoWrap,
-                    isDark ? styles.logoWrapDark : styles.logoWrapLight,
-                  ]}
-                >
-                  <Image source={require('../../assets/RwandaFDA.png')} style={styles.logo} resizeMode="contain" />
-                </View>
-                <View style={styles.heroTextCol}>
-                  <Text style={[styles.heroGreeting, { color: textMain }]}>
-                    {greetingForHour()}, {displayName}
-                  </Text>
-                  <Text style={[styles.heroTagline, { color: textMuted }]} numberOfLines={2}>
-                    {user?.dutyStation
-                      ? `${user.dutyStation} — applications, tasks, and alerts in one place.`
-                      : 'Your monitoring hub for applications, tasks, and team alerts.'}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.heroDateTimeColumn}>
-                <View
-                  style={[
-                    styles.heroDatePill,
-                    {
-                      alignSelf: 'stretch',
-                      backgroundColor: isDark ? 'rgba(148,163,184,0.12)' : 'rgba(15, 94, 71, 0.08)',
-                      borderColor: isDark ? 'rgba(148,163,184,0.2)' : 'rgba(15, 94, 71, 0.12)',
-                    },
-                  ]}
-                >
-                  <Ionicons name="calendar-outline" size={16} color={isDark ? '#94a3b8' : colors.fdaGreen} />
-                  <Text style={[styles.heroDateText, { color: textMain }]}>
-                    {nowTick.toLocaleDateString(undefined, {
-                      weekday: 'long',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                  </Text>
-                </View>
-                <View style={styles.heroTimeBlock}>
-                  <Text style={[styles.heroClock, { color: textMain }]}>
-                    {nowTick.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                  </Text>
-                  <Text style={[styles.heroClockCaption, { color: textMuted }]}>Local time</Text>
-                </View>
-              </View>
+        <FadeInView delay={0} translateY={8}>
+          <View style={styles.quickLinksBlock}>
+            <Text style={[styles.sectionEyebrow, { color: textMuted }]}>Quick links</Text>
+            <View style={styles.quickLinksRow}>
+              <QuickLinkCell
+                icon="checkbox-outline"
+                label="Tasks"
+                isDark={isDark}
+                textMain={textMain}
+                onPress={() => goToTasks('open')}
+              />
+              <QuickLinkCell
+                icon="document-text-outline"
+                label="Applications"
+                isDark={isDark}
+                textMain={textMain}
+                onPress={() => openApplications('')}
+              />
+            </View>
+            <View style={styles.quickLinksRow}>
+              <QuickLinkCell
+                icon="notifications-outline"
+                label="Alerts"
+                isDark={isDark}
+                textMain={textMain}
+                onPress={() => router.push('/(app)/notifications')}
+              />
+              <QuickLinkCell
+                icon="settings-outline"
+                label="Settings"
+                isDark={isDark}
+                textMain={textMain}
+                onPress={() => router.push('/(app)/settings')}
+              />
             </View>
           </View>
         </FadeInView>
@@ -795,7 +832,7 @@ export default function Dashboard() {
                 hapticType="light"
               >
                 <View style={styles.reportHeadRow}>
-                  <View style={[styles.reportIconWrap, { backgroundColor: isDark ? 'rgba(15,94,71,0.35)' : colors.fdaGreenSoft }]}>
+                  <View style={[styles.reportIconWrap, { backgroundColor: isDark ? greenAlpha(0.35) : colors.fdaGreenSoft }]}>
                     <Ionicons name="checkbox-outline" size={22} color={colors.fdaGreen} />
                   </View>
                   <View style={styles.reportHeadText}>
@@ -854,7 +891,7 @@ export default function Dashboard() {
                     textMuted={textMuted}
                     trackColor={isDark ? 'rgba(148,163,184,0.15)' : '#e2e8f0'}
                     ringColor={colors.fdaGreen}
-                    ringFillBg={isDark ? 'rgba(15,94,71,0.22)' : colors.fdaGreenSoft}
+                    ringFillBg={isDark ? greenAlpha(0.22) : colors.fdaGreenSoft}
                   />
                   <View style={[styles.reportStatsList, { borderTopColor: borderColor }]}>
                     <ReportStatRow
@@ -1016,6 +1053,7 @@ export default function Dashboard() {
             )}
           </View>
         </FadeInView>
+        </View>
 
       </ScrollView>
     </SafeAreaView>
@@ -1025,18 +1063,51 @@ export default function Dashboard() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   container: { flex: 1 },
-  content: { paddingHorizontal: spacing.md, paddingTop: spacing.lg, paddingBottom: 96, gap: spacing.sm + 2 },
-  heroCard: {
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-    ...shadow.card,
+  content: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 96, gap: 0 },
+  dashboardHeader: {
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl + spacing.sm,
   },
-  heroInner: {
-    paddingHorizontal: spacing.md + 4,
-    paddingVertical: spacing.md + 2,
+  dashboardHeaderInner: {
     zIndex: 1,
   },
+  dashboardHeaderKicker: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    marginBottom: spacing.sm + 2,
+  },
+  dashboardSheet: {
+    marginTop: -spacing.lg,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md + 4,
+    paddingBottom: spacing.sm,
+    gap: spacing.sm + 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    ...shadow.soft,
+  },
+  sectionEyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.85,
+    textTransform: 'uppercase',
+    marginBottom: spacing.sm,
+  },
+  quickLinksBlock: { marginBottom: spacing.xs },
+  quickLinksRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  quickLinkCell: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm },
+  quickLinkIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+  quickLinkLabel: { fontSize: 12, fontWeight: '700', textAlign: 'center', lineHeight: 16 },
   heroDateTimeColumn: {
     marginTop: spacing.md,
     gap: spacing.sm + 2,
@@ -1044,7 +1115,6 @@ const styles = StyleSheet.create({
   heroTimeBlock: { marginTop: 2 },
   heroClock: { fontSize: 28, fontWeight: '900', letterSpacing: -0.6 },
   heroClockCaption: { fontSize: 11, fontWeight: '700', marginTop: 4 },
-  heroKicker: { fontSize: 10, fontWeight: '800', letterSpacing: 1.4, textTransform: 'uppercase', marginBottom: spacing.sm + 2 },
   heroTopRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 4, marginBottom: 2 },
   heroTextCol: { flex: 1 },
   logoWrap: {
@@ -1053,17 +1123,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
     ...shadow.soft,
-  },
-  logoWrapLight: {
-    backgroundColor: '#ffffff',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(15, 94, 71, 0.14)',
-  },
-  logoWrapDark: {
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(148,163,184,0.22)',
   },
   logo: { width: 30, height: 24 },
   heroGreeting: { fontSize: 20, fontWeight: '900', letterSpacing: -0.4, lineHeight: 26 },

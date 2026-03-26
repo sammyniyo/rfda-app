@@ -17,7 +17,7 @@ export async function ensureAndroidAlertChannelAsync() {
     description: 'Task and application updates',
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#0f5e47',
+    lightColor: '#0d6b52',
     sound: 'default',
     enableVibrate: true,
     showBadge: true,

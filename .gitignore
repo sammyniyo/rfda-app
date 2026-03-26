@@ -8,3 +8,6 @@ build
 npm-debug.log*
 yarn-error.log*
 .DS_Store
+
+# Play / App Store automation keys (never commit)
+**/google-play-service-account.json
