@@ -7,6 +7,7 @@ import { router } from 'expo-router';
 import { useQuery } from '../../hooks/useQuery';
 import { useAuth } from '../../context/AuthContext';
 import { useThemeMode } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { colors, spacing, radius, shadow } from '../../constants/theme';
 import { extractPerformanceTasks, fetchMonitoringPerformance } from '../../lib/monitoringPerformance';
 import { normalizeTaskFromPerformance, timelineStatusLabel } from '../../lib/performanceTaskUi';
@@ -19,12 +20,12 @@ import FriendlyErrorBanner from '../../components/FriendlyErrorBanner';
 // Tasks screen uses live Monitoring Tool APIs (no sample fallbacks).
 
 const STATUS_FILTERS = [
-  { key: '', label: 'All' },
-  { key: 'open', label: 'Open' },
-  { key: 'pending', label: 'Not started' },
-  { key: 'in_progress', label: 'Active' },
-  { key: 'due_soon', label: 'Due soon' },
-  { key: 'completed', label: 'Done' },
+  { key: '', labelKey: 'all' },
+  { key: 'open', labelKey: 'open' },
+  { key: 'pending', labelKey: 'notStarted' },
+  { key: 'in_progress', labelKey: 'active' },
+  { key: 'due_soon', labelKey: 'dueSoon' },
+  { key: 'completed', labelKey: 'done' },
 ];
 
 const VALID_TASK_FILTER_KEYS = new Set(STATUS_FILTERS.map((s) => s.key));
@@ -35,12 +36,12 @@ function normalizeDate(value) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function humanTaskStatus(status) {
+function humanTaskStatus(status, t) {
   const s = String(status || 'pending');
-  if (s === 'completed') return 'Completed';
-  if (s === 'review') return 'In review';
-  if (s === 'in_progress') return 'Active';
-  if (s === 'pending') return 'Not started';
+  if (s === 'completed') return t('completed');
+  if (s === 'review') return t('inReview');
+  if (s === 'in_progress') return t('active');
+  if (s === 'pending') return t('notStarted');
   return s.replace(/_/g, ' ');
 }
 
@@ -104,6 +105,7 @@ function progressBuckets(tasks) {
 export default function Tasks() {
   const { token, user } = useAuth();
   const { isDark } = useThemeMode();
+  const { t } = useLanguage();
   const params = useLocalSearchParams();
   const getToken = () => token;
   const staffId = getMonitoringStaffId(user);
@@ -191,6 +193,10 @@ export default function Tasks() {
   const textMuted = isDark ? '#94a3b8' : colors.textMuted;
   const textSubtle = isDark ? '#64748b' : colors.textSubtle;
   const inputBg = isDark ? '#0f172a' : colors.card;
+  const myNameNorm = String(user?.name || '').trim().toLowerCase();
+  const isCreatedByMe = (task) =>
+    myNameNorm.length > 0 &&
+    String(task?.assigned_by || '').trim().toLowerCase() === myNameNorm;
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: pageBg }]} edges={['top', 'left', 'right']}>
       <ScrollView
@@ -206,23 +212,23 @@ export default function Tasks() {
         <View style={[styles.heroCard, { borderColor, backgroundColor: cardBg }]}>
           <View style={styles.heroCardInner}>
             <View style={styles.heroTitleRow}>
-              <Text style={[styles.heroTitle, { color: textMain }]}>My tasks</Text>
+              <Text style={[styles.heroTitle, { color: textMain }]}>{t('myTasks')}</Text>
               <View style={[styles.countPill, { backgroundColor: isDark ? '#1e293b' : '#ecfdf5', borderColor }]}>
                 <Text style={[styles.countPillText, { color: colors.fdaGreen }]}>{metrics.total}</Text>
               </View>
             </View>
             <Text style={[styles.heroSummary, { color: textMuted }]}>
-              {metrics.active} active · {metrics.late} late · {metrics.done} done
+              {metrics.active} {t('active').toLowerCase()} · {metrics.late} {t('late').toLowerCase()} · {metrics.done} {t('done').toLowerCase()}
             </Text>
             <Text style={[styles.heroSub, { color: textMuted }]}>
-              Tap a task to open details and timeline
+              {t('tapTaskToOpen')}
             </Text>
 
             <View style={[styles.searchWrap, { backgroundColor: inputBg, borderColor }]}>
               <Ionicons name="search-outline" size={18} color={textSubtle} />
               <TextInput
                 style={[styles.searchInput, { color: textMain }]}
-                placeholder="Search tasks"
+                placeholder={t('searchTasks')}
                 placeholderTextColor={textSubtle}
                 value={search}
                 onChangeText={setSearch}
@@ -250,7 +256,7 @@ export default function Tasks() {
                         statusFilter === filter.key && styles.filterPillTextActive,
                       ]}
                     >
-                      {filter.label}
+                      {t(filter.labelKey)}
                     </Text>
                   </PressableScale>
                 </FadeInView>
@@ -262,7 +268,7 @@ export default function Tasks() {
 
       <FadeInView delay={120} translateY={8}>
         <Text style={[styles.sectionLabel, { color: textMuted }]}>
-          {filtered.length} task{filtered.length === 1 ? '' : 's'} in this list
+          {filtered.length} {filtered.length === 1 ? t('task').toLowerCase() : t('tasks').toLowerCase()} {t('inThisList')}
         </Text>
       </FadeInView>
 
@@ -270,9 +276,9 @@ export default function Tasks() {
         <FadeInView delay={160} translateY={6}>
           <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor }]}>
             <Ionicons name="checkmark-done-outline" size={36} color={textMuted} />
-            <Text style={[styles.emptyTitle, { color: textMain }]}>No tasks match</Text>
+            <Text style={[styles.emptyTitle, { color: textMain }]}>{t('noTasksMatch')}</Text>
             <Text style={[styles.emptyBody, { color: textMuted }]}>
-              Try another status filter or clear the search.
+              {t('tryAnotherFilter')}
             </Text>
           </View>
         </FadeInView>
@@ -364,12 +370,12 @@ export default function Tasks() {
               >
                 <View style={styles.taskCardInner}>
                   <View style={styles.badgesRow}>
-                    <Text style={[styles.badgeText, statusBadgeStyle]}>{humanTaskStatus(task.status)}</Text>
+                    <Text style={[styles.badgeText, statusBadgeStyle]}>{humanTaskStatus(task.status, t)}</Text>
                     <Text
                       style={[styles.badgeText, timelineBadgeStyle, styles.badgeTimeline]}
                       numberOfLines={1}
                     >
-                      Timeline · {sla}
+                      {t('timeline')} · {sla}
                     </Text>
                     {task.priority ? (
                       <Text
@@ -378,21 +384,26 @@ export default function Tasks() {
                         {String(task.priority).toUpperCase()}
                       </Text>
                     ) : null}
-                    {isLate ? <Text style={[styles.badgeText, lateStyle]}>LATE</Text> : null}
-                    {!isLate && isDueSoon ? <Text style={[styles.badgeText, soonStyle]}>DUE SOON</Text> : null}
+                    {isLate ? <Text style={[styles.badgeText, lateStyle]}>{t('late').toUpperCase()}</Text> : null}
+                    {!isLate && isDueSoon ? <Text style={[styles.badgeText, soonStyle]}>{t('dueSoon').toUpperCase()}</Text> : null}
                   </View>
                   <Text style={[styles.taskTitle, { color: textMain }]} numberOfLines={2}>
-                    {task.title || 'Untitled task'}
+                    {task.title || t('untitledTask')}
                   </Text>
                   <Text style={[styles.taskDesc, { color: textMuted }]} numberOfLines={2}>
-                    {task.description?.trim() ? task.description : 'No description'}
+                    {task.description?.trim() ? task.description : t('noDescription')}
                   </Text>
+                  {isCreatedByMe(task) && task.working_on ? (
+                    <Text style={[styles.taskWorkerLine, { color: textSubtle }]} numberOfLines={1}>
+                      {t('workingOn')}: {task.working_on}
+                    </Text>
+                  ) : null}
 
                   {dl.dateLine || dl.relLine ? (
                     <View style={[styles.deadlineStrip, { backgroundColor: stripBg, borderColor: stripBorder }]}>
                       <Ionicons name="calendar-outline" size={20} color={stripIcon} style={styles.deadlineStripIcon} />
                       <View style={styles.deadlineStripText}>
-                        <Text style={[styles.deadlineStripLabel, { color: textSubtle }]}>Deadline</Text>
+                        <Text style={[styles.deadlineStripLabel, { color: textSubtle }]}>{t('deadline')}</Text>
                         {dl.dateLine ? (
                           <Text style={[styles.deadlineStripPrimary, { color: textMain }]}>{dl.dateLine}</Text>
                         ) : null}
@@ -419,18 +430,18 @@ export default function Tasks() {
 
                   <View style={[styles.taskMetaGrid, { borderTopColor: borderSubtle }]}>
                     <View style={styles.taskMetaCell}>
-                      <Text style={[styles.taskMetaLabel, { color: textSubtle }]}>SLA window</Text>
+                      <Text style={[styles.taskMetaLabel, { color: textSubtle }]}>{t('slaWindow')}</Text>
                       <Text style={[styles.taskMetaValue, { color: textMain }]} numberOfLines={2}>
-                        {daysRem} remaining · {sla}
+                        {daysRem} {t('remaining').toLowerCase()} · {sla}
                       </Text>
                     </View>
                     <View style={[styles.taskMetaCell, styles.taskMetaCellBorder, { borderLeftColor: borderSubtle }]}>
-                      <Text style={[styles.taskMetaLabel, { color: textSubtle }]}>Application</Text>
+                      <Text style={[styles.taskMetaLabel, { color: textSubtle }]}>{t('application')}</Text>
                       <Text style={[styles.taskMetaValue, { color: textMain }]}>#{task.application_id || '—'}</Text>
                     </View>
                   </View>
                   <View style={styles.taskTapHint}>
-                    <Text style={[styles.taskTapHintText, { color: colors.fdaGreen }]}>Open details</Text>
+                    <Text style={[styles.taskTapHintText, { color: colors.fdaGreen }]}>{t('openDetails')}</Text>
                     <Ionicons name="chevron-forward" size={16} color={colors.fdaGreen} />
                   </View>
                 </View>
@@ -525,6 +536,7 @@ const styles = StyleSheet.create({
   badgeTimeline: { textTransform: 'none', flexShrink: 1, maxWidth: '58%' },
   taskTitle: { fontSize: 16, fontWeight: '800', marginTop: 10, lineHeight: 22, letterSpacing: -0.2 },
   taskDesc: { fontSize: 12, lineHeight: 18, marginTop: 6 },
+  taskWorkerLine: { fontSize: 11.5, fontWeight: '700', marginTop: 4 },
   deadlineStrip: {
     flexDirection: 'row',
     alignItems: 'flex-start',

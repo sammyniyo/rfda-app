@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
-import { Swipeable, TouchableOpacity } from 'react-native-gesture-handler';
+import { TouchableOpacity } from 'react-native-gesture-handler';
 import { colors, spacing, radius, shadow } from '../../constants/theme';
 import { getAuthHeaders } from '../../lib/api';
 import FadeInView from '../../components/FadeInView';
@@ -22,27 +22,24 @@ import PressableScale from '../../components/PressableScale';
 import { ListSkeleton } from '../../components/SkeletonLoader';
 import { useThemeMode } from '../../context/ThemeContext';
 import FriendlyErrorBanner from '../../components/FriendlyErrorBanner';
-import { hapticTap } from '../../lib/haptics';
+import { useLanguage } from '../../context/LanguageContext';
 import {
-  deleteNotificationOnServer,
   fetchNotificationsPage,
-  loadDismissedIds,
   mergeNotificationsById,
-  persistDismissedIds,
 } from '../../lib/notificationsFeed';
 
 const NOTIFICATIONS_AUTO_REFRESH_MS = 45000;
 const PAGE_SIZE = 25;
 
-function formatDayLabel(dateInput) {
-  if (!dateInput) return 'Updates';
+function formatDayLabel(dateInput, t) {
+  if (!dateInput) return t('updates');
   const d = new Date(dateInput);
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const diffDays = Math.round((start - target) / 86400000);
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
+  if (diffDays === 0) return t('today');
+  if (diffDays === 1) return t('yesterday');
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
@@ -51,27 +48,27 @@ function formatTime(dateInput) {
   return new Date(dateInput).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function formatRelative(dateInput) {
+function formatRelative(dateInput, t) {
   if (!dateInput) return '';
-  const t = new Date(dateInput).getTime();
-  if (Number.isNaN(t)) return '';
-  const diff = Date.now() - t;
+  const ts = new Date(dateInput).getTime();
+  if (Number.isNaN(ts)) return '';
+  const diff = Date.now() - ts;
   const m = Math.floor(diff / 60000);
   const h = Math.floor(diff / 3600000);
   const d = Math.floor(diff / 86400000);
-  if (m < 1) return 'Just now';
-  if (m < 60) return `${m}m ago`;
-  if (h < 24) return `${h}h ago`;
-  if (d < 7) return `${d}d ago`;
+  if (m < 1) return t('justNow');
+  if (m < 60) return `${m}m`;
+  if (h < 24) return `${h}h`;
+  if (d < 7) return `${d}d`;
   return '';
 }
 
-function groupNotifications(items) {
+function groupNotifications(items, t) {
   const groups = [];
   let label = null;
   let current = null;
   for (const item of items) {
-    const day = formatDayLabel(item.created_at);
+    const day = formatDayLabel(item.created_at, t);
     if (day !== label) {
       label = day;
       current = { label: day, items: [] };
@@ -93,12 +90,12 @@ function notificationKind(item) {
   return 'update';
 }
 
-function kindLabel(kind) {
-  if (kind === 'task') return 'Task';
-  if (kind === 'application') return 'Application';
-  if (kind === 'alert') return 'Alert';
-  if (kind === 'profile') return 'Profile';
-  return 'Update';
+function kindLabel(kind, t) {
+  if (kind === 'task') return t('tasks');
+  if (kind === 'application') return t('applications');
+  if (kind === 'alert') return t('tabAlerts');
+  if (kind === 'profile') return t('profile');
+  return t('update');
 }
 
 function kindMeta(kind, isDark) {
@@ -122,10 +119,10 @@ function resolveTarget(item) {
 }
 
 const FILTER_CHIPS = [
-  { key: 'all', label: 'All', ion: 'apps-outline' },
-  { key: 'task', label: 'Tasks', ion: 'checkbox-outline' },
-  { key: 'application', label: 'Apps', ion: 'document-text-outline' },
-  { key: 'alert', label: 'Alerts', ion: 'alert-circle-outline' },
+  { key: 'all', labelKey: 'all', ion: 'apps-outline' },
+  { key: 'task', labelKey: 'tasks', ion: 'checkbox-outline' },
+  { key: 'application', labelKey: 'tabApps', ion: 'document-text-outline' },
+  { key: 'alert', labelKey: 'tabAlerts', ion: 'alert-circle-outline' },
 ];
 
 function authHeaderPairs(token) {
@@ -145,54 +142,14 @@ async function fetchNotificationsAuthed(token, queryOpts) {
   return result;
 }
 
-function NotificationRow({ item, styles, isDark, onOpen, onArchive, onDelete }) {
-  const swipeRef = useRef(null);
+function NotificationRow({ item, styles, isDark, onOpen, t }) {
   const kind = notificationKind(item);
   const meta = kindMeta(kind, isDark);
   const unread = !item.read_at;
-  const rel = formatRelative(item.created_at);
+  const rel = formatRelative(item.created_at, t);
 
   return (
-    <Swipeable
-      ref={swipeRef}
-      friction={1}
-      overshootFriction={12}
-      overshootRight={false}
-      overshootLeft={false}
-      activeOffsetX={[-24, 24]}
-      failOffsetY={[-14, 14]}
-      renderRightActions={() => (
-        <View style={styles.swipeActionsRight}>
-          <TouchableOpacity
-            onPress={() => {
-              swipeRef.current?.close();
-              void hapticTap();
-              onArchive(item);
-            }}
-            style={[styles.swipeActionCol, styles.swipeArchive]}
-            accessibilityRole="button"
-            accessibilityLabel="Archive notification"
-          >
-            <Ionicons name="archive-outline" size={22} color="#fff" />
-            <Text style={styles.swipeActionText}>Archive</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => {
-              swipeRef.current?.close();
-              void hapticTap();
-              onDelete(item);
-            }}
-            style={[styles.swipeActionCol, styles.swipeDelete]}
-            accessibilityRole="button"
-            accessibilityLabel="Delete notification"
-          >
-            <Ionicons name="trash-outline" size={22} color="#fff" />
-            <Text style={styles.swipeActionText}>Delete</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    >
-      <TouchableOpacity
+    <TouchableOpacity
         activeOpacity={0.92}
         onPress={() => onOpen(item)}
         style={[styles.row, unread && styles.rowUnread]}
@@ -215,43 +172,42 @@ function NotificationRow({ item, styles, isDark, onOpen, onArchive, onDelete }) 
             </Text>
           </View>
           <View style={styles.rowTitleRow}>
-            <Text style={styles.rowKind}>{kindLabel(kind)}</Text>
+            <Text style={styles.rowKind}>{kindLabel(kind, t)}</Text>
             {unread ? <View style={styles.dotUnread} /> : null}
           </View>
           <Text style={styles.rowTitle} numberOfLines={2}>
-            {item.title || 'Update'}
+            {item.title || t('update')}
           </Text>
           <Text style={styles.rowMessage} numberOfLines={2}>
-            {item.message || 'No additional details.'}
+            {item.message || t('noAdditionalDetails')}
           </Text>
           <View style={styles.rowFooter}>
             {unread ? (
               <View style={styles.pillNew}>
-                <Text style={styles.pillNewText}>New</Text>
+                <Text style={styles.pillNewText}>{t('new')}</Text>
               </View>
             ) : (
               <View style={styles.pillRead}>
                 <Ionicons name="checkmark-done-outline" size={12} color={styles.pillReadIconColor} />
-                <Text style={styles.pillReadText}>Read</Text>
+                <Text style={styles.pillReadText}>{t('read')}</Text>
               </View>
             )}
             <View style={styles.footerSpacer} />
-            <Text style={styles.openHint}>Open</Text>
+            <Text style={styles.openHint}>{t('open')}</Text>
             <Ionicons name="chevron-forward" size={16} color={styles.chevronColor} />
           </View>
         </View>
       </TouchableOpacity>
-    </Swipeable>
   );
 }
 
 export default function Notifications() {
   const { token, logout } = useAuth();
   const { isDark } = useThemeMode();
+  const { t } = useLanguage();
   const styles = useMemo(() => createStyles(isDark), [isDark]);
 
   const [allItems, setAllItems] = useState([]);
-  const [dismissedIds, setDismissedIds] = useState(() => new Set());
   const pageRef = useRef(1);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -263,14 +219,7 @@ export default function Notifications() {
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [search, setSearch] = useState('');
   const loadMoreGuard = useRef(false);
-  const dismissedRef = useRef(new Set());
   const listFilterKey = unreadOnly ? 'unread' : 'all';
-
-  useEffect(() => {
-    dismissedRef.current = dismissedIds;
-  }, [dismissedIds]);
-
-  const stripDismissed = useCallback((items) => items.filter((i) => i?.id != null && !dismissedRef.current.has(String(i.id))), []);
 
   const loadPage = useCallback(
     async (pageNum, { append } = { append: false }) => {
@@ -290,24 +239,13 @@ export default function Notifications() {
         e.status = status;
         throw e;
       }
-      const incoming = stripDismissed(items);
+      const incoming = items.filter((i) => i?.id != null);
       setHasMore(has_more);
       if (!append) pageRef.current = 1;
       setAllItems((prev) => (append ? mergeNotificationsById(prev, incoming) : mergeNotificationsById([], incoming)));
     },
-    [token, listFilterKey, stripDismissed]
+    [token, listFilterKey, t]
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const dismissed = await loadDismissedIds();
-      if (!cancelled) setDismissedIds(dismissed);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -328,9 +266,9 @@ export default function Notifications() {
         if (cancelled) return;
         const status = err?.status;
         if (status === 401 || status === 403) {
-          setErrorInfo({ kind: 'auth', message: err?.message || 'Session expired' });
+          setErrorInfo({ kind: 'auth', message: err?.message || t('sessionExpired') });
         } else {
-          setErrorInfo({ kind: 'network', message: err?.message || 'Something went wrong' });
+          setErrorInfo({ kind: 'network', message: err?.message || t('somethingWentWrong') });
         }
       })
       .finally(() => {
@@ -339,7 +277,7 @@ export default function Notifications() {
     return () => {
       cancelled = true;
     };
-  }, [token, listFilterKey, loadPage]);
+  }, [token, listFilterKey, loadPage, t]);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -347,7 +285,7 @@ export default function Notifications() {
       fetchNotificationsAuthed(token, { page: 1, limit: PAGE_SIZE, filter: listFilterKey })
         .then(({ items, ok, error }) => {
           if (!ok || error) return;
-          const incoming = items.filter((i) => i?.id != null && !dismissedRef.current.has(String(i.id)));
+          const incoming = items.filter((i) => i?.id != null);
           setAllItems((prev) => mergeNotificationsById(prev, incoming));
         })
         .catch(() => {});
@@ -358,7 +296,7 @@ export default function Notifications() {
   const queryText = search.trim().toLowerCase();
 
   const visibleItems = useMemo(() => {
-    let list = allItems.filter((item) => item?.id != null && !dismissedIds.has(String(item.id)));
+    let list = allItems.filter((item) => item?.id != null);
     if (kindFilter !== 'all') {
       list = list.filter((item) => notificationKind(item) === kindFilter);
     }
@@ -367,58 +305,27 @@ export default function Notifications() {
     }
     if (!queryText) return list;
     return list.filter((item) => {
-      const hay = [item.title, item.message, item.type, kindLabel(notificationKind(item))]
+      const hay = [item.title, item.message, item.type, kindLabel(notificationKind(item), t)]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
       return hay.includes(queryText);
     });
-  }, [allItems, dismissedIds, kindFilter, unreadOnly, queryText]);
+  }, [allItems, kindFilter, unreadOnly, queryText, t]);
 
   const sections = useMemo(() => {
-    const groups = groupNotifications(visibleItems);
+    const groups = groupNotifications(visibleItems, t);
     return groups.map((g) => ({ title: g.label, data: g.items }));
-  }, [visibleItems]);
+  }, [visibleItems, t]);
 
   const unreadCount = useMemo(
-    () => allItems.filter((n) => n?.id != null && !dismissedIds.has(String(n.id)) && !n.read_at).length,
-    [allItems, dismissedIds]
+    () => allItems.filter((n) => n?.id != null && !n.read_at).length,
+    [allItems]
   );
 
   /** Open target screen only — mark-as-read stays on web; app does not PATCH read state. */
   function openItem(item) {
     router.push(resolveTarget(item));
-  }
-
-  /** Hide from this device only; notification stays on server (Telegram-style archive). */
-  function archiveItem(item) {
-    const id = item?.id;
-    if (id == null) return;
-    const sid = String(id);
-    setDismissedIds((prev) => {
-      const next = new Set(prev);
-      next.add(sid);
-      persistDismissedIds(next);
-      return next;
-    });
-    setAllItems((prev) => prev.filter((x) => String(x.id) !== sid));
-  }
-
-  async function dismissItem(item) {
-    const id = item?.id;
-    if (id == null) return;
-    const sid = String(id);
-    setDismissedIds((prev) => {
-      const next = new Set(prev);
-      next.add(sid);
-      persistDismissedIds(next);
-      return next;
-    });
-    setAllItems((prev) => prev.filter((x) => String(x.id) !== sid));
-    const { bearer, raw } = authHeaderPairs(token);
-    deleteNotificationOnServer(sid, bearer).catch(() => {
-      deleteNotificationOnServer(sid, raw).catch(() => {});
-    });
   }
 
   const handleRefresh = useCallback(async () => {
@@ -431,14 +338,14 @@ export default function Notifications() {
     } catch (err) {
       const status = err?.status;
       if (status === 401 || status === 403) {
-        setErrorInfo({ kind: 'auth', message: err?.message || 'Session expired' });
+        setErrorInfo({ kind: 'auth', message: err?.message || t('sessionExpired') });
       } else {
-        setErrorInfo({ kind: 'network', message: err?.message || 'Something went wrong' });
+        setErrorInfo({ kind: 'network', message: err?.message || t('somethingWentWrong') });
       }
     } finally {
       setRefreshing(false);
     }
-  }, [token, loadPage]);
+  }, [token, loadPage, t]);
 
   const onEndReached = useCallback(async () => {
     if (!token || !hasMore || loading || loadingMore || refreshing || loadMoreGuard.current) return;
@@ -453,7 +360,7 @@ export default function Notifications() {
       });
       if (ok && !error) {
         setHasMore(has_more);
-        const incoming = items.filter((i) => i?.id != null && !dismissedRef.current.has(String(i.id)));
+        const incoming = items.filter((i) => i?.id != null);
         setAllItems((prev) => mergeNotificationsById(prev, incoming));
         pageRef.current = nextPage;
       }
@@ -468,10 +375,10 @@ export default function Notifications() {
   }, [token, hasMore, loading, loadingMore, refreshing, listFilterKey]);
 
   const emptyNoData =
-    visibleItems.length === 0 && allItems.filter((i) => i?.id != null && !dismissedIds.has(String(i.id))).length === 0 && !errorInfo;
+    visibleItems.length === 0 && allItems.filter((i) => i?.id != null).length === 0 && !errorInfo;
   const emptyFiltered =
     visibleItems.length === 0 &&
-    allItems.filter((i) => i?.id != null && !dismissedIds.has(String(i.id))).length > 0;
+    allItems.filter((i) => i?.id != null).length > 0;
 
   const listHeader = useMemo(
     () => (
@@ -491,7 +398,7 @@ export default function Notifications() {
                 }}
                 hapticType="medium"
               >
-                <Text style={styles.authOutBtnText}>Sign out and sign in again</Text>
+                <Text style={styles.authOutBtnText}>{t('signOutAndSignInAgain')}</Text>
               </PressableScale>
             ) : null}
           </>
@@ -504,13 +411,13 @@ export default function Notifications() {
                 <Image source={require('../../assets/RwandaFDA.png')} style={styles.headerLogo} resizeMode="contain" />
               </View>
               <View style={styles.headerTextBlock}>
-                <Text style={styles.headerTitle}>Inbox</Text>
+                <Text style={styles.headerTitle}>{t('inbox')}</Text>
                 <Text style={styles.headerSub}>
                   {unreadCount > 0
-                    ? `${unreadCount} unread · pull to refresh, swipe left to archive or delete`
+                    ? `${unreadCount} ${t('unread').toLowerCase()} · ${t('pullToRefresh')}`
                     : allItems.length > 0
-                      ? 'You’re all caught up'
-                      : 'Updates from Rwanda FDA'}
+                      ? t('allCaughtUp')
+                      : t('updatesFromRfda')}
                 </Text>
               </View>
               {unreadCount > 0 ? (
@@ -526,7 +433,7 @@ export default function Notifications() {
               <Ionicons name="search-outline" size={20} color={styles.searchIconColor} />
               <TextInput
                 style={styles.searchInput}
-                placeholder="Search notifications…"
+                placeholder={t('searchNotifications')}
                 placeholderTextColor={styles.placeholderColor}
                 value={search}
                 onChangeText={setSearch}
@@ -552,7 +459,7 @@ export default function Notifications() {
               color={unreadOnly ? '#fff' : styles.filterChipIconColor}
               style={{ marginRight: 6 }}
             />
-            <Text style={[styles.filterChipText, unreadOnly && styles.filterChipTextActive]}>Unread</Text>
+            <Text style={[styles.filterChipText, unreadOnly && styles.filterChipTextActive]}>{t('unread')}</Text>
           </PressableScale>
           {FILTER_CHIPS.map((chip) => (
             <PressableScale
@@ -567,13 +474,13 @@ export default function Notifications() {
                 color={kindFilter === chip.key ? '#fff' : styles.filterChipIconColor}
                 style={{ marginRight: 6 }}
               />
-              <Text style={[styles.filterChipText, kindFilter === chip.key && styles.filterChipTextActive]}>{chip.label}</Text>
+              <Text style={[styles.filterChipText, kindFilter === chip.key && styles.filterChipTextActive]}>{t(chip.labelKey)}</Text>
             </PressableScale>
           ))}
         </ScrollView>
       </>
     ),
-    [errorInfo, isDark, styles, handleRefresh, logout, unreadCount, allItems.length, search, unreadOnly, kindFilter]
+    [errorInfo, isDark, styles, handleRefresh, logout, unreadCount, allItems.length, search, unreadOnly, kindFilter, t]
   );
 
   if (loading && !errorInfo) return <ListSkeleton count={5} />;
@@ -590,8 +497,7 @@ export default function Notifications() {
               styles={styles}
               isDark={isDark}
               onOpen={openItem}
-              onArchive={archiveItem}
-              onDelete={dismissItem}
+              t={t}
             />
           </View>
         )}
@@ -616,16 +522,16 @@ export default function Notifications() {
               <View style={styles.emptyIconCircle}>
                 <Ionicons name="notifications-off-outline" size={36} color={styles.emptyIconColor} />
               </View>
-              <Text style={styles.emptyTitle}>Nothing here yet</Text>
-              <Text style={styles.emptyText}>New task and application updates will show up here.</Text>
+              <Text style={styles.emptyTitle}>{t('nothingHereYet')}</Text>
+              <Text style={styles.emptyText}>{t('notificationsEmpty')}</Text>
             </View>
           ) : emptyFiltered ? (
             <View style={styles.emptyCard}>
               <View style={styles.emptyIconCircle}>
                 <Ionicons name="funnel-outline" size={34} color={styles.emptyIconColor} />
               </View>
-              <Text style={styles.emptyTitle}>No matches</Text>
-              <Text style={styles.emptyText}>Try another filter or clear the search.</Text>
+              <Text style={styles.emptyTitle}>{t('noMatches')}</Text>
+              <Text style={styles.emptyText}>{t('noMatchesTryFilter')}</Text>
               <PressableScale
                 style={styles.resetBtn}
                 onPress={() => {
@@ -635,7 +541,7 @@ export default function Notifications() {
                 }}
                 hapticType="light"
               >
-                <Text style={styles.resetBtnText}>Reset filters</Text>
+                <Text style={styles.resetBtnText}>{t('resetFilters')}</Text>
               </PressableScale>
             </View>
           ) : null
@@ -750,28 +656,6 @@ const createStyles = (isDark) => {
     },
 
     rowWrap: { marginBottom: spacing.sm },
-
-    swipeActionsRight: {
-      flexDirection: 'row',
-      alignItems: 'stretch',
-      marginBottom: spacing.sm,
-    },
-    /** Telegram-style columns: icon + label, full row height */
-    swipeActionCol: {
-      width: 88,
-      justifyContent: 'center',
-      alignItems: 'center',
-      paddingVertical: 12,
-    },
-    swipeArchive: {
-      backgroundColor: isDark ? '#52525b' : '#6b7280',
-    },
-    swipeDelete: {
-      backgroundColor: '#dc2626',
-      borderTopRightRadius: radius.lg,
-      borderBottomRightRadius: radius.lg,
-    },
-    swipeActionText: { color: '#fff', fontSize: 11, fontWeight: '800', marginTop: 5, textAlign: 'center' },
 
     row: {
       flexDirection: 'row',

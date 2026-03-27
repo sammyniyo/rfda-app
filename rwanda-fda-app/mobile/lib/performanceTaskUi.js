@@ -48,6 +48,8 @@ export function normalizeTaskFromPerformance(t, index) {
   const priority = rawPriority === 'urgent' ? 'high' : rawPriority || null;
 
   const extras = pickCollaborationExtras(t);
+  const assignedBy = t.assigned_by ?? t.assigned_by_name ?? null;
+  const workingOn = inferWorkingOnName(t, assignedBy);
 
   return {
     id: t.task_id ?? t.id ?? index + 1,
@@ -69,11 +71,67 @@ export function normalizeTaskFromPerformance(t, index) {
     category: t.category ?? t.task_category ?? null,
     type_label: t.type_label ?? null,
     application_type: t.application_type ?? null,
-    assigned_by: t.assigned_by ?? t.assigned_by_name ?? null,
+    assigned_by: assignedBy,
+    working_on: workingOn,
     is_completed: Boolean(t.is_completed),
     is_active: Boolean(t.is_active),
     extras,
   };
+}
+
+function normalizeName(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function parseAssignedToFromHistory(history) {
+  if (!Array.isArray(history)) return null;
+  for (const row of history) {
+    const c = String(row?.comments || '');
+    const m = c.match(/assigned to\s+([^,\n\r]+)/i);
+    if (m?.[1]) return m[1].trim();
+  }
+  return null;
+}
+
+function firstUpdateAuthor(updates, creatorName) {
+  if (!Array.isArray(updates)) return null;
+  const creatorNorm = normalizeName(creatorName);
+  for (const u of updates) {
+    const n = String(u?.staff_name || '').trim();
+    if (!n) continue;
+    if (normalizeName(n) === creatorNorm) continue;
+    return n;
+  }
+  return null;
+}
+
+function inferWorkingOnName(raw, creatorName) {
+  const explicit =
+    raw.assigned_to_name ??
+    raw.assignee_name ??
+    raw.assigned_to ??
+    raw.assignee ??
+    raw.worker_name ??
+    raw.owner_name ??
+    null;
+  if (explicit) return String(explicit).trim();
+
+  const fromHistory = parseAssignedToFromHistory(raw.review_history);
+  if (fromHistory) return fromHistory;
+
+  const fromUpdates = firstUpdateAuthor(raw.updates, creatorName);
+  if (fromUpdates) return fromUpdates;
+
+  const creatorNorm = normalizeName(creatorName);
+  if (Array.isArray(raw.followers)) {
+    for (const f of raw.followers) {
+      const n = String(f?.follower_name || '').trim();
+      if (!n) continue;
+      if (normalizeName(n) === creatorNorm) continue;
+      return n;
+    }
+  }
+  return null;
 }
 
 export function timelineStatusLabel(ts) {

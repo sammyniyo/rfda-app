@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '../../hooks/useQuery';
 import { useAuth } from '../../context/AuthContext';
 import { useThemeMode } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { colors, spacing, radius, shadow } from '../../constants/theme';
 import { canonicalApplicationTimeline } from '../../lib/applicationTimeline';
 import {
@@ -19,15 +20,15 @@ import PressableScale from '../../components/PressableScale';
 import { ListSkeleton } from '../../components/SkeletonLoader';
 import FriendlyErrorBanner from '../../components/FriendlyErrorBanner';
 
-function statusMeta(app) {
+function statusMeta(app, t) {
   const timeline = String(app.timeline_status || '').toLowerCase();
   if (app.is_completed) {
-    return { label: 'Completed', fg: colors.success, bg: 'completed' };
+    return { label: t('completed'), fg: colors.success, bg: 'completed' };
   }
-  if (timeline === 'delayed') return { label: 'Delayed', fg: colors.danger, bg: 'delayed' };
-  if (timeline === 'tobedelayed') return { label: 'At risk', fg: colors.warning, bg: 'risk' };
-  if (timeline === 'ontime') return { label: 'On time', fg: colors.success, bg: 'ontime' };
-  return { label: app.is_active ? 'Active' : 'Assigned', fg: colors.fdaBlue, bg: 'active' };
+  if (timeline === 'delayed') return { label: t('delayed'), fg: colors.danger, bg: 'delayed' };
+  if (timeline === 'tobedelayed') return { label: t('atRisk'), fg: colors.warning, bg: 'risk' };
+  if (timeline === 'ontime') return { label: t('onTime'), fg: colors.success, bg: 'ontime' };
+  return { label: app.is_active ? t('active') : t('assigned'), fg: colors.fdaBlue, bg: 'active' };
 }
 
 function statusAccent(meta) {
@@ -38,13 +39,13 @@ function statusAccent(meta) {
 }
 
 const FILTER_CHIPS = [
-  { key: '', label: 'All' },
-  { key: 'unique', label: 'Unique apps' },
-  { key: 'active', label: 'Active' },
-  { key: 'completed', label: 'Done' },
-  { key: 'ontime', label: 'On time' },
-  { key: 'tobedelayed', label: 'At risk' },
-  { key: 'delayed', label: 'Delayed' },
+  { key: '', labelKey: 'all' },
+  { key: 'unique', labelKey: 'uniqueApps' },
+  { key: 'active', labelKey: 'active' },
+  { key: 'completed', labelKey: 'done' },
+  { key: 'ontime', labelKey: 'onTime' },
+  { key: 'tobedelayed', labelKey: 'atRisk' },
+  { key: 'delayed', labelKey: 'delayed' },
 ];
 
 const VALID_APP_FILTER_KEYS = new Set(FILTER_CHIPS.map((c) => c.key));
@@ -99,6 +100,7 @@ function formatShortDate(value) {
 export default function Applications() {
   const { token, user } = useAuth();
   const { isDark } = useThemeMode();
+  const { t } = useLanguage();
   const params = useLocalSearchParams();
   const getToken = () => token;
   const staffId = getMonitoringStaffId(user);
@@ -139,7 +141,7 @@ export default function Applications() {
         timeline_status,
         is_active,
         is_completed,
-        type: inner?.filter?.application_type_label || inner?.filter?.application_type || 'Application',
+        type: inner?.filter?.application_type_label || inner?.filter?.application_type || t('application'),
         submitted_at: a.submission_date,
         updated_at: a.assignment_date,
         assigned_stage: a.assigned_stage,
@@ -229,6 +231,8 @@ export default function Applications() {
     setRefreshing(true);
     try {
       await refetchRef.current();
+    } catch {
+      // useQuery already handles and exposes error info
     } finally {
       setRefreshing(false);
     }
@@ -236,7 +240,7 @@ export default function Applications() {
 
   const renderItem = useCallback(
     ({ item: app }) => {
-      const meta = statusMeta(app);
+      const meta = statusMeta(app, t);
       const pc = pillColors(meta);
       const accent = statusAccent(meta);
       const remaining =
@@ -247,7 +251,7 @@ export default function Applications() {
       const open = Boolean(expandedApps[app.rowKey]);
       const submitted = formatShortDate(app.submitted_at);
       const updated = formatShortDate(app.updated_at);
-      const previewLine = `${app.assigned_stage || '—'} · ${remaining} left`;
+      const previewLine = `${app.assigned_stage || '—'} · ${remaining} ${t('left').toLowerCase()}`;
 
       return (
         <PressableScale
@@ -268,7 +272,7 @@ export default function Applications() {
                   {app.reference_number || `#${app.application_id ?? app.assignment_id}`}
                 </Text>
                 <Text style={[styles.appTitle, { color: textMain }]} numberOfLines={open ? 3 : 1}>
-                  {app.title || 'Application'}
+                  {app.title || t('application')}
                 </Text>
               </View>
               <View style={styles.cardTopRight}>
@@ -286,21 +290,21 @@ export default function Applications() {
             ) : (
               <>
                 <Text style={[styles.typeLine, { color: textMuted }]} numberOfLines={2}>
-                  {app.type || 'Application'}
+                  {app.type || t('application')}
                 </Text>
                 <View style={[styles.metaGrid, { borderTopColor: borderSubtle }]}>
                   <View style={styles.metaCell}>
-                    <Text style={[styles.metaLabel, { color: textMuted }]}>Stage</Text>
+                    <Text style={[styles.metaLabel, { color: textMuted }]}>{t('stage')}</Text>
                     <Text style={[styles.metaValue, { color: textMain }]} numberOfLines={3}>
                       {app.assigned_stage || '—'}
                     </Text>
                   </View>
                   <View style={[styles.metaCell, styles.metaCellBorder, { borderLeftColor: borderSubtle }]}>
                     <Text style={[styles.metaLabel, { color: textMuted }]}>SLA</Text>
-                    <Text style={[styles.metaValue, { color: textMain }]}>{remaining} left</Text>
+                    <Text style={[styles.metaValue, { color: textMain }]}>{remaining} {t('left').toLowerCase()}</Text>
                   </View>
                   <View style={[styles.metaCell, styles.metaCellBorder, { borderLeftColor: borderSubtle }]}>
-                    <Text style={[styles.metaLabel, { color: textMuted }]}>Progress</Text>
+                    <Text style={[styles.metaLabel, { color: textMuted }]}>{t('progress')}</Text>
                     <Text style={[styles.metaValue, { color: textMain }]}>{progress}</Text>
                   </View>
                 </View>
@@ -308,13 +312,13 @@ export default function Applications() {
                   <View style={[styles.expandedDates, { borderTopColor: borderSubtle }]}>
                     {submitted ? (
                       <Text style={[styles.expandedDateLine, { color: textMuted }]}>
-                        <Text style={styles.expandedDateLabel}>Submitted </Text>
+                        <Text style={styles.expandedDateLabel}>{t('submitted')} </Text>
                         {submitted}
                       </Text>
                     ) : null}
                     {updated ? (
                       <Text style={[styles.expandedDateLine, { color: textMuted }]}>
-                        <Text style={styles.expandedDateLabel}>Assignment </Text>
+                        <Text style={styles.expandedDateLabel}>{t('assignment')} </Text>
                         {updated}
                       </Text>
                     ) : null}
@@ -326,7 +330,7 @@ export default function Applications() {
         </PressableScale>
       );
     },
-    [borderColor, cardBg, expandedApps, isDark, textMain, textMuted]
+    [borderColor, cardBg, expandedApps, isDark, textMain, textMuted, t]
   );
 
   const keyExtractor = useCallback((item) => item.rowKey, []);
@@ -342,7 +346,7 @@ export default function Applications() {
           <View style={[styles.headerCard, { borderColor, backgroundColor: cardBg }]}>
             <View style={styles.headerCardInner}>
               <View style={styles.headerTitleRow}>
-                <Text style={[styles.title, { color: textMain }]}>Applications</Text>
+                <Text style={[styles.title, { color: textMain }]}>{t('applications')}</Text>
                 <View
                   style={[
                     styles.countPill,
@@ -363,7 +367,7 @@ export default function Applications() {
                   ]}
                 >
                   <Text style={[styles.summaryStatNumber, { color: colors.fdaBlue }]}>{listSummary.active}</Text>
-                  <Text style={[styles.summaryStatLabel, { color: isDark ? '#93c5fd' : colors.fdaBlue }]}> active</Text>
+                  <Text style={[styles.summaryStatLabel, { color: isDark ? '#93c5fd' : colors.fdaBlue }]}> {t('active').toLowerCase()}</Text>
                 </View>
                 <View
                   style={[
@@ -372,7 +376,7 @@ export default function Applications() {
                   ]}
                 >
                   <Text style={[styles.summaryStatNumber, { color: colors.success }]}>{listSummary.done}</Text>
-                  <Text style={[styles.summaryStatLabel, { color: isDark ? '#6ee7b7' : '#047857' }]}> done</Text>
+                  <Text style={[styles.summaryStatLabel, { color: isDark ? '#6ee7b7' : '#047857' }]}> {t('done').toLowerCase()}</Text>
                 </View>
                 <View
                   style={[
@@ -381,7 +385,7 @@ export default function Applications() {
                   ]}
                 >
                   <Text style={[styles.summaryStatNumber, { color: colors.warning }]}>{listSummary.issues}</Text>
-                  <Text style={[styles.summaryStatLabel, { color: isDark ? '#fcd34d' : '#b45309' }]}> attention</Text>
+                  <Text style={[styles.summaryStatLabel, { color: isDark ? '#fcd34d' : '#b45309' }]}> {t('attention').toLowerCase()}</Text>
                 </View>
                 <View
                   style={[
@@ -390,7 +394,7 @@ export default function Applications() {
                   ]}
                 >
                   <Text style={[styles.summaryStatNumber, { color: colors.teal }]}>{dedupedList.length}</Text>
-                  <Text style={[styles.summaryStatLabel, { color: isDark ? '#5eead4' : '#0f766e' }]}> unique</Text>
+                  <Text style={[styles.summaryStatLabel, { color: isDark ? '#5eead4' : '#0f766e' }]}> {t('unique').toLowerCase()}</Text>
                 </View>
               </View>
 
@@ -398,7 +402,7 @@ export default function Applications() {
                 <Ionicons name="search-outline" size={20} color={textMuted} />
                 <TextInput
                   style={[styles.searchInput, { color: textMain }]}
-                  placeholder="Search reference, applicant, stage…"
+                  placeholder={t('searchReferenceApplicantStage')}
                   placeholderTextColor={textMuted}
                   value={search}
                   onChangeText={setSearch}
@@ -432,7 +436,7 @@ export default function Applications() {
                       onPress={() => setFilterKey(chip.key)}
                       hapticType="selection"
                     >
-                      <Text style={[styles.chipText, { color: active ? '#fff' : textMuted }]}>{chip.label}</Text>
+                      <Text style={[styles.chipText, { color: active ? '#fff' : textMuted }]}>{t(chip.labelKey)}</Text>
                     </PressableScale>
                   );
                 })}
@@ -445,9 +449,9 @@ export default function Applications() {
           <FadeInView delay={80} translateY={8}>
             <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor }]}>
               <Ionicons name="document-text-outline" size={40} color={textMuted} />
-              <Text style={[styles.emptyTitle, { color: textMain }]}>No applications yet</Text>
+              <Text style={[styles.emptyTitle, { color: textMain }]}>{t('noApplicationsYet')}</Text>
               <Text style={[styles.emptyBody, { color: textMuted }]}>
-                When assignments are linked to your account, they will appear here.
+                {t('applicationsAppearHere')}
               </Text>
             </View>
           </FadeInView>
@@ -482,10 +486,10 @@ export default function Applications() {
       <FadeInView delay={0} translateY={6}>
         <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor }]}>
           <Ionicons name="funnel-outline" size={36} color={textMuted} />
-          <Text style={[styles.emptyTitle, { color: textMain }]}>No matches</Text>
-          <Text style={[styles.emptyBody, { color: textMuted }]}>Try another filter or clear the search.</Text>
+          <Text style={[styles.emptyTitle, { color: textMain }]}>{t('noMatches')}</Text>
+          <Text style={[styles.emptyBody, { color: textMuted }]}>{t('noMatchesTryFilter')}</Text>
           <PressableScale style={styles.clearBtn} onPress={() => { setFilterKey(''); setSearch(''); }} hapticType="light">
-            <Text style={styles.clearBtnText}>Reset filters</Text>
+            <Text style={styles.clearBtnText}>{t('resetFilters')}</Text>
           </PressableScale>
         </View>
       </FadeInView>

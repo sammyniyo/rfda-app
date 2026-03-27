@@ -1,32 +1,33 @@
-import { Tabs, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Platform, StyleSheet, Text, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors } from '../../constants/theme';
-import { useThemeMode } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
-import { useQuery } from '../../hooks/useQuery';
-import { getAuthHeaders, isApiSuccess } from '../../lib/api';
-import { api } from '../../constants/api';
-import { useEffect } from 'react';
-import AuthLoadingScreen from '../../components/AuthLoadingScreen';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Tabs } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { Platform, StyleSheet, Text, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { colors } from "../../constants/theme";
+import { useThemeMode } from "../../context/ThemeContext";
+import { useAuth } from "../../context/AuthContext";
+import { useQuery } from "../../hooks/useQuery";
+import { getAuthHeaders, isApiSuccess } from "../../lib/api";
+import { api } from "../../constants/api";
+import AuthLoadingScreen from "../../components/AuthLoadingScreen";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useLanguage } from "../../context/LanguageContext";
+import { useEffect } from "react";
 
 /** Tab bar palette — dark bar + light bar with gradient via tabBarBackground */
 const TAB_BAR = {
   dark: {
-    gradient: ['#1c1c1e', '#000000'],
-    barBorder: 'rgba(255,255,255,0.1)',
-    active: '#ffffff',
-    inactive: '#8d9599',
-    indicator: '#ffffff',
-    badgeBg: '#25d366',
+    gradient: ["#1c1c1e", "#000000"],
+    barBorder: "rgba(255,255,255,0.1)",
+    active: "#ffffff",
+    inactive: "#8d9599",
+    indicator: "#ffffff",
+    badgeBg: "#25d366",
   },
   light: {
-    gradient: ['#ffffff', '#f2f4f5'],
-    barBorder: 'rgba(0,0,0,0.07)',
+    gradient: ["#ffffff", "#f2f4f5"],
+    barBorder: "rgba(0,0,0,0.07)",
     active: colors.fdaGreen,
-    inactive: '#6b7280',
+    inactive: "#6b7280",
     indicator: colors.fdaGreen,
     badgeBg: colors.fdaGreen,
   },
@@ -34,37 +35,29 @@ const TAB_BAR = {
 
 /** Line-art icons only (outline weight reads like WhatsApp iOS). */
 const TAB_ICONS = {
-  index: 'home-outline',
-  tasks: 'checkbox-outline',
-  applications: 'document-text-outline',
-  notifications: 'notifications-outline',
-  profile: 'person-outline',
-};
-
-const TAB_LABELS = {
-  index: 'Home',
-  tasks: 'Tasks',
-  applications: 'Apps',
-  notifications: 'Alerts',
-  profile: 'You',
+  index: "home-outline",
+  tasks: "checkbox-outline",
+  applications: "document-text-outline",
+  notifications: "notifications-outline",
+  settings: "person-outline",
 };
 
 function countOpenTasksFromPayload(list) {
   if (!Array.isArray(list)) return 0;
   return list.filter((t) => {
     if (t.is_completed) return false;
-    const s = String(t.status ?? t.task_status ?? '').toLowerCase();
-    return s !== 'completed' && s !== 'review';
+    const s = String(t.status ?? t.task_status ?? "").toLowerCase();
+    return s !== "completed" && s !== "review";
   }).length;
 }
 
 function TabBarIcon({ focused, routeName, isDark, badgeCount = 0 }) {
   const palette = isDark ? TAB_BAR.dark : TAB_BAR.light;
   const iconColor = focused ? palette.active : palette.inactive;
-  const name = TAB_ICONS[routeName] || 'ellipse-outline';
+  const name = TAB_ICONS[routeName] || "ellipse-outline";
   const showBadge = badgeCount > 0;
-  const badgeLabel = badgeCount > 99 ? '99+' : String(badgeCount);
-  const badgeBorder = isDark ? '#000000' : '#ffffff';
+  const badgeLabel = badgeCount > 99 ? "99+" : String(badgeCount);
+  const badgeBorder = isDark ? "#000000" : "#ffffff";
 
   return (
     <View style={styles.iconColumn}>
@@ -78,7 +71,12 @@ function TabBarIcon({ focused, routeName, isDark, badgeCount = 0 }) {
                 {
                   backgroundColor: palette.badgeBg,
                   borderColor: badgeBorder,
-                  minWidth: badgeLabel.length > 2 ? 26 : badgeLabel.length > 1 ? 22 : 18,
+                  minWidth:
+                    badgeLabel.length > 2
+                      ? 26
+                      : badgeLabel.length > 1
+                        ? 22
+                        : 18,
                   paddingHorizontal: badgeLabel.length > 2 ? 6 : 5,
                 },
               ]}
@@ -92,7 +90,9 @@ function TabBarIcon({ focused, routeName, isDark, badgeCount = 0 }) {
       </View>
       <View style={styles.indicatorTrack}>
         {focused ? (
-          <View style={[styles.indicator, { backgroundColor: palette.indicator }]} />
+          <View
+            style={[styles.indicator, { backgroundColor: palette.indicator }]}
+          />
         ) : (
           <View style={styles.indicatorPlaceholder} />
         )}
@@ -107,13 +107,20 @@ function TabBarIcon({ focused, routeName, isDark, badgeCount = 0 }) {
  */
 function AuthenticatedTabs({ isDark, resolvedTheme, token }) {
   const insets = useSafeAreaInsets();
+  const { t } = useLanguage();
 
   const notificationsQuery = useQuery(
     async () => {
       if (!token) return [];
-      const tokenValue = String(token || '');
-      const headersBearer = { ...getAuthHeaders(() => token), Authorization: `Bearer ${tokenValue}` };
-      const headersRaw = { ...getAuthHeaders(() => token), Authorization: tokenValue };
+      const tokenValue = String(token || "");
+      const headersBearer = {
+        ...getAuthHeaders(() => token),
+        Authorization: `Bearer ${tokenValue}`,
+      };
+      const headersRaw = {
+        ...getAuthHeaders(() => token),
+        Authorization: tokenValue,
+      };
       let res = await fetch(api.notifications, { headers: headersBearer });
       let payload = await res.json().catch(() => ({}));
       if (!res.ok && (res.status === 401 || res.status === 403)) {
@@ -127,9 +134,11 @@ function AuthenticatedTabs({ isDark, resolvedTheme, token }) {
       return [];
     },
     [token],
-    { cacheKey: token ? `tab_notifications_${token}` : undefined }
+    { cacheKey: token ? `tab_notifications_${token}` : undefined },
   );
-  const notifItems = Array.isArray(notificationsQuery.data) ? notificationsQuery.data : [];
+  const notifItems = Array.isArray(notificationsQuery.data)
+    ? notificationsQuery.data
+    : [];
   const unreadCount = notifItems.filter((n) => !n?.read_at).length;
   const palette = isDark ? TAB_BAR.dark : TAB_BAR.light;
 
@@ -165,7 +174,7 @@ function AuthenticatedTabs({ isDark, resolvedTheme, token }) {
           paddingBottom: 2,
         },
         tabBarStyle: {
-          backgroundColor: 'transparent',
+          backgroundColor: "transparent",
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: palette.barBorder,
           elevation: 0,
@@ -175,9 +184,14 @@ function AuthenticatedTabs({ isDark, resolvedTheme, token }) {
           paddingBottom: Math.max(insets.bottom, 8),
         },
         tabBarIcon: ({ focused }) => {
-          const badgeCount = route.name === 'notifications' ? unreadCount : 0;
+          const badgeCount = route.name === "notifications" ? unreadCount : 0;
           return (
-            <TabBarIcon focused={focused} routeName={route.name} isDark={isDark} badgeCount={badgeCount} />
+            <TabBarIcon
+              focused={focused}
+              routeName={route.name}
+              isDark={isDark}
+              badgeCount={badgeCount}
+            />
           );
         },
         tabBarLabel: ({ focused }) => (
@@ -188,24 +202,31 @@ function AuthenticatedTabs({ isDark, resolvedTheme, token }) {
               style={[
                 styles.tabLabelText,
                 {
-                  fontWeight: focused ? '700' : '500',
+                  fontWeight: focused ? "700" : "500",
                   color: focused ? palette.active : palette.inactive,
                 },
               ]}
             >
-              {TAB_LABELS[route.name] || route.name}
+              {{
+                index: t("tabHome"),
+                tasks: t("tabTasks"),
+                applications: t("tabApps"),
+                notifications: t("tabAlerts"),
+                settings: t("tabYou"),
+              }[route.name] || route.name}
             </Text>
           </View>
         ),
       })}
     >
-      <Tabs.Screen name="index" options={{ title: 'Dashboard' }} />
-      <Tabs.Screen name="tasks" options={{ title: 'My Tasks' }} />
+      <Tabs.Screen name="index" options={{ title: t("tabDashboardTitle") }} />
+      <Tabs.Screen name="tasks" options={{ title: t("tabTasksTitle") }} />
+      <Tabs.Screen name="applications" options={{ title: t("tabApplicationsTitle") }} />
+      <Tabs.Screen name="notifications" options={{ title: t("tabNotificationsTitle") }} />
+      <Tabs.Screen name="settings" options={{ title: t("tabProfileTitle") }} />
       <Tabs.Screen name="task" options={{ href: null }} />
-      <Tabs.Screen name="settings" options={{ href: null }} />
-      <Tabs.Screen name="applications" options={{ title: 'Applications' }} />
-      <Tabs.Screen name="notifications" options={{ title: 'Notifications' }} />
-      <Tabs.Screen name="profile" options={{ title: 'My Profile' }} />
+      <Tabs.Screen name="security-access" options={{ href: null }} />
+      <Tabs.Screen name="profile" options={{ href: null }} />
     </Tabs>
   );
 }
@@ -213,21 +234,21 @@ function AuthenticatedTabs({ isDark, resolvedTheme, token }) {
 export default function AppLayout() {
   const { isDark, resolvedTheme } = useThemeMode();
   const { token, loading } = useAuth();
-  const router = useRouter();
 
-  // Imperative navigation — <Redirect> inside a group layout re-fires every render
-  // because the layout stays mounted during the navigation, causing an infinite loop.
-  useEffect(() => {
-    if (!loading && !token) {
-      router.replace('/');
-    }
-  }, [loading, token]);
-
-  if (loading || !token) {
+  if (loading) {
+    return <AuthLoadingScreen />;
+  }
+  if (!token) {
     return null;
   }
 
-  return <AuthenticatedTabs isDark={isDark} resolvedTheme={resolvedTheme} token={token} />;
+  return (
+    <AuthenticatedTabs
+      isDark={isDark}
+      resolvedTheme={resolvedTheme}
+      token={token}
+    />
+  );
 }
 
 const styles = StyleSheet.create({
@@ -235,35 +256,35 @@ const styles = StyleSheet.create({
     minHeight: 14,
     marginTop: 4,
     marginBottom: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    alignSelf: 'center',
+    justifyContent: "center",
+    alignItems: "center",
+    alignSelf: "center",
     maxWidth: 72,
   },
   tabLabelText: {
     fontSize: 10.5,
     letterSpacing: -0.15,
-    textAlign: 'center',
+    textAlign: "center",
   },
   iconColumn: {
-    alignItems: 'center',
-    justifyContent: 'flex-start',
+    alignItems: "center",
+    justifyContent: "flex-start",
     width: 64,
   },
   iconSlot: {
     height: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   iconWithBadge: {
     width: 36,
     height: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
   },
   badge: {
-    position: 'absolute',
+    position: "absolute",
     top: -2,
     right: -6,
     minWidth: 18,
@@ -271,11 +292,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     borderRadius: 9,
     borderWidth: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
+        shadowColor: "#000",
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.25,
         shadowRadius: 2,
@@ -284,18 +305,18 @@ const styles = StyleSheet.create({
     }),
   },
   badgeText: {
-    color: '#ffffff',
+    color: "#ffffff",
     fontSize: 10,
-    fontWeight: '700',
-    textAlign: 'center',
+    fontWeight: "700",
+    textAlign: "center",
     ...Platform.select({ android: { includeFontPadding: false } }),
   },
   indicatorTrack: {
     height: 3,
     marginTop: 3,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    width: '100%',
+    alignItems: "center",
+    justifyContent: "flex-start",
+    width: "100%",
   },
   indicator: {
     width: 28,

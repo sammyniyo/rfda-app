@@ -14,12 +14,12 @@ import { router } from "expo-router";
 import { useAuth } from "../../context/AuthContext";
 import { useThemeMode } from "../../context/ThemeContext";
 import { useQuery } from "../../hooks/useQuery";
-import { colors, spacing, radius, shadow, header, greenAlpha } from "../../constants/theme";
+import { colors, spacing, radius, shadow } from "../../constants/theme";
 import { getAuthHeaders } from "../../lib/api";
 import { api } from "../../constants/api";
 import FadeInView from "../../components/FadeInView";
 import PressableScale from "../../components/PressableScale";
-import { hapticSuccess } from "../../lib/haptics";
+import { useLanguage } from "../../context/LanguageContext";
 import {
   extractPerformanceApplications,
   extractPerformanceTasks,
@@ -107,14 +107,14 @@ function PersonHierarchyCard({ title, person, tone = "manager", isDark, textMain
       ? { backgroundColor: "rgba(33,77,134,0.28)", borderColor: "rgba(96,165,250,0.22)" }
       : { backgroundColor: "#f6fbff", borderColor: "#dfeafb" }
     : isDark
-      ? { backgroundColor: greenAlpha(0.22), borderColor: "rgba(52,211,153,0.2)" }
+      ? { backgroundColor: "rgba(15,94,71,0.22)", borderColor: "rgba(52,211,153,0.2)" }
       : { backgroundColor: "#fbfffd", borderColor: "#d7efe0" };
   const avBg = isManager
     ? isDark
       ? { backgroundColor: "rgba(33,77,134,0.5)" }
       : { backgroundColor: "#e8f0ff" }
     : isDark
-      ? { backgroundColor: greenAlpha(0.45) }
+      ? { backgroundColor: "rgba(15,94,71,0.45)" }
       : { backgroundColor: "#e7faf0" };
   return (
     <View style={[styles.hPersonCard, cardSurface]}>
@@ -181,8 +181,9 @@ function TeamMemberCard({ member, cardBg, cardSoft, borderColor, textMain, textM
 }
 
 export default function Profile() {
-  const { token, user, loading: authLoading, logout } = useAuth();
+  const { token, user, loading: authLoading } = useAuth();
   const { isDark } = useThemeMode();
+  const { t } = useLanguage();
   const pageBg = isDark ? "#0b1220" : colors.background;
   const cardBg = isDark ? "#111827" : colors.card;
   const cardSoft = isDark ? "#1e293b" : colors.cardSoft;
@@ -190,14 +191,22 @@ export default function Profile() {
   const textMain = isDark ? "#f8fafc" : colors.text;
   const textMuted = isDark ? "#94a3b8" : colors.textMuted;
   const textSubtle = isDark ? "#64748b" : colors.textSubtle;
-  const iconBg = isDark ? greenAlpha(0.22) : colors.fdaGreenSoft;
-  const iconBorder = isDark ? "rgba(52,211,153,0.18)" : greenAlpha(0.12);
-  const logoWrapBg = isDark ? "rgba(15,23,42,0.92)" : "rgba(255,255,255,0.2)";
-  const pillSurface = isDark ? greenAlpha(0.28) : colors.fdaGreenSoft;
-  const pillBorder = isDark ? "rgba(52,211,153,0.22)" : greenAlpha(0.12);
-  const actionPillBg = isDark ? "rgba(255,255,255,0.12)" : header.iconChip;
-  const actionPillBorder = isDark ? "rgba(255,255,255,0.2)" : header.iconChipBorder;
-  const nestedPanelBg = isDark ? "#1e293b" : colors.cardSoft;
+  const iconBg = isDark ? "rgba(15,94,71,0.22)" : "#e7faf0";
+  const iconBorder = isDark ? "rgba(52,211,153,0.18)" : "rgba(15,94,71,0.12)";
+  const heroBorder = isDark ? borderColor : colors.border;
+  const logoWrapBg = isDark ? "rgba(15,23,42,0.92)" : "#fff";
+  const pillSurface = isDark ? "rgba(15,94,71,0.28)" : "#e7faf0";
+  const pillBorder = isDark ? "rgba(52,211,153,0.22)" : "rgba(15,94,71,0.12)";
+  const actionPillBg = isDark ? "#1e293b" : "#fff";
+  const statApps = isDark
+    ? { backgroundColor: "rgba(33,77,134,0.35)", borderColor: "rgba(96,165,250,0.28)" }
+    : { backgroundColor: "#e8f0ff", borderColor: "rgba(33,77,134,0.14)" };
+  const statTasks = isDark
+    ? { backgroundColor: "rgba(15,94,71,0.3)", borderColor: "rgba(52,211,153,0.25)" }
+    : { backgroundColor: "#e7faf0", borderColor: "rgba(15,94,71,0.14)" };
+  const statNotif = isDark
+    ? { backgroundColor: "rgba(217,119,6,0.22)", borderColor: "rgba(251,191,36,0.3)" }
+    : { backgroundColor: "#fff6ea", borderColor: "rgba(217,119,6,0.14)" };
   const [refreshing, setRefreshing] = useState(false);
   const [reportsVisible, setReportsVisible] = useState(8);
   const directReportsFilteredLen = filterDirectReportsForProfile(user?.direct_reports).length;
@@ -321,6 +330,8 @@ export default function Profile() {
         applicationsQuery.refetch(),
         notificationsQuery.refetch(),
       ]);
+    } catch {
+      // each query sets its own error state; avoid uncaught refresh rejection
     } finally {
       setRefreshing(false);
     }
@@ -339,7 +350,7 @@ export default function Profile() {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: pageBg }]} edges={["top", "left", "right"]}>
       <ScrollView
         style={[styles.container, { backgroundColor: pageBg }]}
-        contentContainerStyle={[styles.content, { backgroundColor: pageBg }]}
+        contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -349,157 +360,129 @@ export default function Profile() {
           />
         }
       >
-        <LinearGradient
-          colors={isDark ? header.gradientDark : header.gradientLight}
-          locations={[0, 0.45, 1]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.profileHeader}
-        >
-          <View style={[styles.profileHeaderInner, { paddingHorizontal: spacing.md }]}>
+        <FadeInView delay={0} translateY={14}>
+          <View style={[styles.heroCard, { borderColor: heroBorder }]}>
+            <LinearGradient
+              colors={isDark ? ["#111827", "#0b1220", "#0f172a"] : ["#ffffff", "#f8fbff", "#effaf4"]}
+              locations={[0, 0.45, 1]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={isDark ? ["transparent", "rgba(15,94,71,0.12)"] : ["transparent", "rgba(15,94,71,0.05)"]}
+              start={{ x: 0.4, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
+            <View style={styles.heroCardInner}>
             <View style={styles.heroHeaderRow}>
               <View style={styles.brandRow}>
-                <View style={[styles.brandLogoWrap, { backgroundColor: logoWrapBg, borderColor: actionPillBorder }]}>
+                <View style={[styles.brandLogoWrap, { backgroundColor: logoWrapBg, borderColor }]}>
                   <Image
                     source={require("../../assets/RwandaFDA.png")}
                     style={styles.brandLogo}
                     resizeMode="contain"
                   />
                 </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={[styles.profileHeaderTitle, { color: header.text }]} numberOfLines={1}>
-                    Your profile
-                  </Text>
-                  <Text style={[styles.profileHeaderSub, { color: header.textMuted }]} numberOfLines={1}>
+                <View>
+                  <Text style={[styles.brandTitle, { color: textMain }]}>Profile</Text>
+                  <Text style={[styles.brandSub, { color: textMuted }]} numberOfLines={1}>
                     {profile.dutyStation || profile.department || "Rwanda FDA"}
                   </Text>
                 </View>
               </View>
               <View style={styles.heroActionsRow}>
                 <PressableScale
-                  style={[styles.iconPill, { backgroundColor: actionPillBg, borderColor: actionPillBorder }]}
+                  style={[styles.iconPill, { backgroundColor: actionPillBg, borderColor }]}
                   onPress={() => router.push("/(app)/settings")}
                 >
-                  <Ionicons name="settings-outline" size={17} color={header.text} />
-                </PressableScale>
-                <PressableScale
-                  style={[styles.signOutIconBtn, { backgroundColor: actionPillBg, borderColor: actionPillBorder }]}
-                  hapticType="medium"
-                  onPress={async () => {
-                    await hapticSuccess();
-                    try {
-                      await logout();
-                    } catch {
-                      /* logout always clears local state; swallow stray native errors */
-                    }
-                  }}
-                >
-                  <Ionicons name="log-out-outline" size={18} color="#fecaca" />
+                  <Ionicons
+                    name="settings-outline"
+                    size={17}
+                    color={textMain}
+                  />
                 </PressableScale>
               </View>
             </View>
 
             <View style={styles.heroTopRow}>
-              <View style={[styles.avatarShell, { backgroundColor: header.iconChip, borderColor: actionPillBorder }]}>
-                <LinearGradient colors={[colors.fdaGreen, colors.teal]} style={styles.avatar}>
-                  <Text style={styles.avatarText}>{initials(profile.name)}</Text>
+              <View style={[styles.avatarShell, { backgroundColor: isDark ? "rgba(15,94,71,0.2)" : "#eef6f4" }]}>
+                <LinearGradient
+                  colors={[colors.fdaGreen, colors.teal]}
+                  style={styles.avatar}
+                >
+                  <Text style={styles.avatarText}>
+                    {initials(profile.name)}
+                  </Text>
                 </LinearGradient>
               </View>
               <View style={styles.heroTextWrap}>
-                <Text style={[styles.nameText, { color: header.text }]} numberOfLines={2}>
-                  {profile.name || "RFDA Staff"}
+                <Text style={[styles.nameText, { color: textMain }]} numberOfLines={2}>
+                  {profile.name || t("rfdaStaff")}
                 </Text>
-                <Text style={[styles.roleText, { color: header.textMuted }]} numberOfLines={1}>
-                  {profile.position || profile.staff_position || profile.role || "Staff member"}
+                <Text style={[styles.roleText, { color: textMuted }]} numberOfLines={1}>
+                  {profile.position ||
+                    profile.staff_position ||
+                    profile.role ||
+                    t("staffMember")}
                 </Text>
-                <View
-                  style={[
-                    styles.emailPill,
-                    { backgroundColor: header.iconChip, borderColor: actionPillBorder },
-                  ]}
-                >
-                  <Text style={[styles.emailPillText, { color: header.textSubtle }]} numberOfLines={1}>
-                    {profile.email || "No work email"}
-                  </Text>
-                </View>
+                <Text style={[styles.smallSubText, { color: textSubtle }]} numberOfLines={1}>
+                  {profile.email || t("noWorkEmail")}
+                </Text>
               </View>
             </View>
 
             <View style={styles.statsCardsRow}>
-              <View
-                style={[
-                  styles.statCard,
-                  { backgroundColor: header.iconChip, borderColor: actionPillBorder },
-                ]}
-              >
-                <Text style={[styles.statValue, { color: header.text }]}>{appListForStats.length}</Text>
-                <Text style={[styles.statLabel, { color: header.textMuted }]}>Applications</Text>
+              <View style={[styles.statCard, statApps]}>
+                <Text style={[styles.statValue, { color: textMain }]}>{appListForStats.length}</Text>
+                <Text style={[styles.statLabel, { color: textMuted }]}>{t("applications")}</Text>
               </View>
-              <View
-                style={[
-                  styles.statCard,
-                  { backgroundColor: header.iconChip, borderColor: actionPillBorder },
-                ]}
-              >
-                <Text style={[styles.statValue, { color: header.text }]}>{pendingTasks}</Text>
-                <Text style={[styles.statLabel, { color: header.textMuted }]}>Open tasks</Text>
+              <View style={[styles.statCard, statTasks]}>
+                <Text style={[styles.statValue, { color: textMain }]}>{pendingTasks}</Text>
+                <Text style={[styles.statLabel, { color: textMuted }]}>{t("openTasks")}</Text>
               </View>
-              <View
-                style={[
-                  styles.statCard,
-                  { backgroundColor: header.iconChip, borderColor: actionPillBorder },
-                ]}
-              >
-                <Text style={[styles.statValue, { color: header.text }]}>{unreadNotifications}</Text>
-                <Text style={[styles.statLabel, { color: header.textMuted }]}>Unread</Text>
+              <View style={[styles.statCard, statNotif]}>
+                <Text style={[styles.statValue, { color: textMain }]}>{unreadNotifications}</Text>
+                <Text style={[styles.statLabel, { color: textMuted }]}>{t("unread")}</Text>
               </View>
             </View>
+            </View>
           </View>
-        </LinearGradient>
+        </FadeInView>
 
-        <View
-          style={[
-            styles.profileSheet,
-            {
-              backgroundColor: isDark ? cardBg : colors.card,
-              borderColor: isDark ? borderColor : colors.border,
-            },
-          ]}
-        >
         <FadeInView delay={90} translateY={10}>
-          <Text style={[styles.sectionEyebrow, styles.sectionEyebrowFirst, { color: textMuted }]}>
-            Profile information
-          </Text>
-          <View style={[styles.panel, { backgroundColor: nestedPanelBg, borderColor }]}>
+          <View style={[styles.panel, { backgroundColor: cardBg, borderColor }]}>
             <View style={styles.panelHeaderRow}>
-              <Text style={[styles.panelTitle, { color: textMain }]}>My details</Text>
+              <Text style={[styles.panelTitle, { color: textMain }]}>{t("myDetails")}</Text>
               <View style={[styles.panelChip, { backgroundColor: pillSurface, borderColor: pillBorder }]}>
                 <Ionicons
                   name="shield-checkmark-outline"
                   size={14}
                   color={colors.fdaGreen}
                 />
-                <Text style={styles.panelChipText}>Verified</Text>
+                <Text style={styles.panelChipText}>{t("verified")}</Text>
               </View>
             </View>
-            <InfoRow icon="mail-outline" label="Work email" value={profile.email} {...infoProps} />
-            <InfoRow icon="call-outline" label="Phone" value={profile.phone} {...infoProps} />
+            <InfoRow icon="mail-outline" label={t("workEmail")} value={profile.email} {...infoProps} />
+            <InfoRow icon="call-outline" label={t("phone")} value={profile.phone} {...infoProps} />
             <InfoRow
               icon="location-outline"
-              label="Duty station"
+              label={t("dutyStation")}
               value={profile.dutyStation || profile.department}
               {...infoProps}
             />
-            <InfoRow icon="people-outline" label="Staff group" value={profile.group} {...infoProps} />
+            <InfoRow icon="people-outline" label={t("staffGroup")} value={profile.group} {...infoProps} />
             <InfoRow
               icon="briefcase-outline"
-              label="Position"
+              label={t("position")}
               value={profile.position}
               {...infoProps}
             />
             <InfoRow
               icon="business-outline"
-              label="Organization"
+              label={t("organization")}
               value={
                 [profile.parentOrgUnitName, profile.orgUnitName].filter(Boolean).join(" · ") ||
                 profile.orgUnitName ||
@@ -511,18 +494,17 @@ export default function Profile() {
         </FadeInView>
 
         <FadeInView delay={160} translateY={10}>
-          <Text style={[styles.sectionEyebrow, { color: textMuted }]}>Employment</Text>
-          <View style={[styles.panel, { backgroundColor: nestedPanelBg, borderColor }]}>
-            <Text style={[styles.panelTitle, { color: textMain }]}>More</Text>
-            <DetailRow label="Degree" value={profile.degree} {...detailProps} />
-            <DetailRow label="Qualifications" value={profile.qualifications} {...detailProps} />
+          <View style={[styles.panel, { backgroundColor: cardBg, borderColor }]}>
+            <Text style={[styles.panelTitle, { color: textMain }]}>{t("more")}</Text>
+            <DetailRow label={t("degree")} value={profile.degree} {...detailProps} />
+            <DetailRow label={t("qualifications")} value={profile.qualifications} {...detailProps} />
             <DetailRow
-              label="Contract"
+              label={t("contract")}
               value={profile.contractType}
               {...detailProps}
             />
             <DetailRow
-              label="Hire date"
+              label={t("hireDate")}
               value={
                 profile.hireDate
                   ? new Date(profile.hireDate).toLocaleDateString()
@@ -534,41 +516,39 @@ export default function Profile() {
         </FadeInView>
 
         <FadeInView delay={220} translateY={10}>
-          <Text style={[styles.sectionEyebrow, { color: textMuted }]}>At a glance</Text>
-          <View style={[styles.panel, { backgroundColor: nestedPanelBg, borderColor }]}>
-            <Text style={[styles.panelTitle, { color: textMain }]}>My snapshot</Text>
+          <View style={[styles.panel, { backgroundColor: cardBg, borderColor }]}>
+            <Text style={[styles.panelTitle, { color: textMain }]}>{t("mySnapshot")}</Text>
             <View style={[styles.metricRow, { borderTopColor: borderColor }]}>
-              <Text style={[styles.metricLabel, { color: textMuted }]}>Completed tasks</Text>
+              <Text style={[styles.metricLabel, { color: textMuted }]}>{t("completedTasks")}</Text>
               <Text style={[styles.metricValue, { color: textMain }]}>{completedTasks}</Text>
             </View>
             <View style={[styles.metricRow, { borderTopColor: borderColor }]}>
-              <Text style={[styles.metricLabel, { color: textMuted }]}>Open tasks</Text>
+              <Text style={[styles.metricLabel, { color: textMuted }]}>{t("openTasks")}</Text>
               <Text style={[styles.metricValue, { color: textMain }]}>{pendingTasks}</Text>
             </View>
             <View style={[styles.metricRow, { borderTopColor: borderColor }]}>
-              <Text style={[styles.metricLabel, { color: textMuted }]}>Applications in my queue</Text>
+              <Text style={[styles.metricLabel, { color: textMuted }]}>{t("applicationsQueue")}</Text>
               <Text style={[styles.metricValue, { color: textMain }]}>{appListForStats.length}</Text>
             </View>
             <View style={[styles.metricRow, { borderTopColor: borderColor }]}>
-              <Text style={[styles.metricLabel, { color: textMuted }]}>Unread notifications</Text>
+              <Text style={[styles.metricLabel, { color: textMuted }]}>{t("unreadNotifications")}</Text>
               <Text style={[styles.metricValue, { color: textMain }]}>{unreadNotifications}</Text>
             </View>
           </View>
         </FadeInView>
 
         <FadeInView delay={260} translateY={10}>
-          <Text style={[styles.sectionEyebrow, { color: textMuted }]}>Organization</Text>
-          <View style={[styles.panel, { backgroundColor: nestedPanelBg, borderColor }]}>
+          <View style={[styles.panel, { backgroundColor: cardBg, borderColor }]}>
             <View style={styles.panelHeaderRow}>
-              <Text style={[styles.panelTitle, { color: textMain }]}>Staff hierarchy</Text>
+              <Text style={[styles.panelTitle, { color: textMain }]}>{t("staffHierarchy")}</Text>
               <Text style={[styles.hintRightText, { color: textMuted }]}>
-                {reportCount} report{reportCount === 1 ? "" : "s"}
+                {reportCount} {reportCount === 1 ? t("reportOne") : t("reportMany")}
               </Text>
             </View>
 
             {profile.reports_to ? (
               <PersonHierarchyCard
-                title="Reports To"
+                title={t("reportsTo")}
                 person={profile.reports_to}
                 tone="manager"
                 isDark={isDark}
@@ -578,18 +558,18 @@ export default function Profile() {
               />
             ) : (
               <View style={[styles.hEmptyCard, { backgroundColor: cardSoft, borderColor }]}>
-                <Text style={[styles.hEmptyText, { color: textMuted }]}>No manager found.</Text>
+                <Text style={[styles.hEmptyText, { color: textMuted }]}>{t("noManagerFound")}</Text>
               </View>
             )}
 
             <View style={styles.directReportsHeader}>
-              <Text style={[styles.directReportsTitle, { color: textMain }]}>Direct reports</Text>
+              <Text style={[styles.directReportsTitle, { color: textMain }]}>{t("directReports")}</Text>
               <Text
                 style={[
                   styles.directReportsCount,
                   {
                     color: colors.fdaGreen,
-                    backgroundColor: isDark ? greenAlpha(0.35) : colors.fdaGreenSoft,
+                    backgroundColor: isDark ? "rgba(15,94,71,0.35)" : colors.fdaGreenSoft,
                   },
                 ]}
               >
@@ -600,13 +580,13 @@ export default function Profile() {
             {allDirectReports.length === 0 ? (
               <View style={[styles.hEmptyCard, { backgroundColor: cardSoft, borderColor }]}>
                 <Text style={[styles.hEmptyText, { color: textMuted }]}>
-                  No staff currently reporting to you.
+                  {t("noDirectReports")}
                 </Text>
               </View>
             ) : directReports.length === 0 ? (
               <View style={[styles.hEmptyCard, { backgroundColor: cardSoft, borderColor }]}>
                 <Text style={[styles.hEmptyText, { color: textMuted }]}>
-                  No direct reports match Under Statute with active status.
+                  {t("noDirectReportsFiltered")}
                 </Text>
               </View>
             ) : (
@@ -632,7 +612,7 @@ export default function Profile() {
                     }
                   >
                     <Text style={[styles.loadMoreReportsText, { color: colors.fdaGreen }]}>
-                      Load more ({directReports.length - reportsVisible} left)
+                      {t("loadMoreLeft").replace("{left}", String(directReports.length - reportsVisible))}
                     </Text>
                     <Ionicons name="chevron-down" size={18} color={colors.fdaGreen} />
                   </PressableScale>
@@ -641,7 +621,6 @@ export default function Profile() {
             )}
           </View>
         </FadeInView>
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -650,57 +629,27 @@ export default function Profile() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   container: { flex: 1 },
-  content: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 112 },
+  content: { padding: spacing.md, paddingBottom: 112, gap: spacing.md },
   centered: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
   stateText: { fontSize: 15, fontWeight: "600" },
-  profileHeader: {
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xl + spacing.sm,
+  heroCard: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    overflow: "hidden",
+    ...shadow.card,
   },
-  profileHeaderInner: { zIndex: 1 },
-  profileHeaderTitle: { fontSize: 17, fontWeight: "900", letterSpacing: -0.3 },
-  profileHeaderSub: { fontSize: 12, fontWeight: "600", marginTop: 2 },
-  profileSheet: {
-    marginTop: -spacing.lg,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md + 4,
-    paddingBottom: spacing.md,
-    gap: 0,
-    borderWidth: StyleSheet.hairlineWidth,
-    ...shadow.soft,
-  },
-  sectionEyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.85,
-    textTransform: "uppercase",
-    marginBottom: spacing.sm,
-    marginTop: spacing.md,
-  },
-  sectionEyebrowFirst: { marginTop: 0 },
-  emailPill: {
-    alignSelf: "flex-start",
-    marginTop: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    maxWidth: "100%",
-  },
-  emailPillText: { fontSize: 11.5, fontWeight: "600" },
+  heroCardInner: { padding: spacing.md, zIndex: 1 },
   heroHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: spacing.sm,
   },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   brandLogoWrap: {
     width: 40,
     height: 40,
@@ -711,6 +660,8 @@ const styles = StyleSheet.create({
     ...shadow.soft,
   },
   brandLogo: { width: 30, height: 24 },
+  brandTitle: { fontSize: 14, fontWeight: "900" },
+  brandSub: { fontSize: 11.5, marginTop: 2 },
   heroActionsRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   iconPill: {
     width: 36,
@@ -720,19 +671,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  signOutIconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   heroTopRow: { flexDirection: "row", gap: spacing.md, alignItems: "center" },
   avatarShell: {
     borderRadius: radius.lg,
     padding: 3,
-    borderWidth: StyleSheet.hairlineWidth,
   },
   avatar: {
     width: 76,
@@ -748,6 +690,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     fontWeight: "700",
+  },
+  smallSubText: {
+    fontSize: 11.5,
+    marginTop: 4,
+    fontWeight: "600",
   },
   statsCardsRow: {
     marginTop: spacing.md,

@@ -1,25 +1,25 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { AppState, Platform } from 'react-native';
-import Constants from 'expo-constants';
-import { router } from 'expo-router';
-import { useAuth } from '../context/AuthContext';
-import { api } from '../constants/api';
-import { getAuthHeaders, isApiSuccess } from '../lib/api';
-import { normalizeNotificationRow } from '../lib/notificationsFeed';
-import { ensureAndroidAlertChannelAsync } from '../lib/pushNotifications';
+import { useCallback, useEffect, useRef } from "react";
+import { AppState, Platform } from "react-native";
+import Constants from "expo-constants";
+import { router } from "expo-router";
+import { useAuth } from "../context/AuthContext";
+import { api } from "../constants/api";
+import { getAuthHeaders, isApiSuccess } from "../lib/api";
+import { normalizeNotificationRow } from "../lib/notificationsFeed";
+import { ensureAndroidAlertChannelAsync } from "../lib/pushNotifications";
 import {
   buildMessagingStyleNotificationContent,
   ensureMessagingNotificationCategory,
-} from '../lib/messagingStyleNotifications';
+} from "../lib/messagingStyleNotifications";
 
 // Remote push token is unavailable in Expo Go (SDK 53+); polling still schedules local alerts.
-const isExpoGo = Constants.appOwnership === 'expo';
+const isExpoGo = Constants.appOwnership === "expo";
 const NOTIFICATION_POLL_MS = 20000;
 
 function getNotificationsModule() {
   try {
     // eslint-disable-next-line global-require
-    return require('expo-notifications');
+    return require("expo-notifications");
   } catch {
     return null;
   }
@@ -38,27 +38,29 @@ function extractItems(payload) {
 }
 
 function guessLink(item) {
-  const text = `${String(item?.type || '').toLowerCase()} ${String(item?.title || '').toLowerCase()} ${String(
-    item?.message || ''
+  const text = `${String(item?.type || "").toLowerCase()} ${String(item?.title || "").toLowerCase()} ${String(
+    item?.message || "",
   ).toLowerCase()}`;
-  if (text.includes('task')) return '/(app)/tasks';
-  if (text.includes('application') || text.includes('app')) return '/(app)/applications';
-  if (text.includes('profile')) return '/(app)/profile';
-  return '/(app)/notifications';
+  if (text.includes("task")) return "/(app)/tasks";
+  if (text.includes("application") || text.includes("app"))
+    return "/(app)/applications";
+  if (text.includes("profile")) return "/(app)/profile";
+  return "/(app)/notifications";
 }
 
 function routeFromLink(link) {
-  const path = String(link || '').trim();
-  if (path.startsWith('/')) return path;
+  const path = String(link || "").trim();
+  if (path.startsWith("/")) return path;
   const lower = path.toLowerCase();
-  if (lower.includes('task')) return '/(app)/tasks';
-  if (lower.includes('application') || lower.includes('app')) return '/(app)/applications';
-  if (lower.includes('profile')) return '/(app)/profile';
-  return '/(app)/notifications';
+  if (lower.includes("task")) return "/(app)/tasks";
+  if (lower.includes("application") || lower.includes("app"))
+    return "/(app)/applications";
+  if (lower.includes("profile")) return "/(app)/profile";
+  return "/(app)/notifications";
 }
 
 function itemId(item) {
-  return String(item?.id ?? item?.notification_id ?? '').trim();
+  return String(item?.id ?? item?.notification_id ?? "").trim();
 }
 
 export default function PushNotificationsProvider({ children }) {
@@ -83,7 +85,7 @@ export default function PushNotificationsProvider({ children }) {
       try {
         await ensureAndroidAlertChannelAsync();
         const perms = await Notifications.getPermissionsAsync();
-        if (perms.status !== 'granted') {
+        if (perms.status !== "granted") {
           await Notifications.requestPermissionsAsync();
         }
       } catch {
@@ -116,18 +118,19 @@ export default function PushNotificationsProvider({ children }) {
 
     (async () => {
       // eslint-disable-next-line global-require
-      const pushLib = require('../lib/pushNotifications');
+      const pushLib = require("../lib/pushNotifications");
       const pushToken = await pushLib.registerForPushNotificationsAsync();
       if (!pushToken) return;
 
-      const authKey = token ? String(token) : '';
-      if (hasRegisteredPushRef.current && lastPushAuthRef.current === authKey) return;
+      const authKey = token ? String(token) : "";
+      if (hasRegisteredPushRef.current && lastPushAuthRef.current === authKey)
+        return;
 
       try {
         let regRes;
         if (token) {
           regRes = await fetch(api.registerDevice, {
-            method: 'POST',
+            method: "POST",
             headers: getAuthHeaders(() => token),
             body: JSON.stringify({
               token: pushToken,
@@ -136,8 +139,8 @@ export default function PushNotificationsProvider({ children }) {
           });
         } else {
           regRes = await fetch(api.registerDevice, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               token: pushToken,
               platform: Platform.OS,
@@ -159,24 +162,28 @@ export default function PushNotificationsProvider({ children }) {
     const Notifications = getNotificationsModule();
     if (!Notifications) return undefined;
 
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const session = authTokenRef.current;
-      try {
-        if (!session) {
-          router.push('/');
-          return;
-        }
-        const data = response?.notification?.request?.content?.data;
-        const target = data?.link ? routeFromLink(data.link) : '/(app)/notifications';
-        router.push(target);
-      } catch {
+    const sub = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const session = authTokenRef.current;
         try {
-          router.push(authTokenRef.current ? '/(app)/notifications' : '/');
+          if (!session) {
+            router.push("/");
+            return;
+          }
+          const data = response?.notification?.request?.content?.data;
+          const target = data?.link
+            ? routeFromLink(data.link)
+            : "/(app)/notifications";
+          router.push(target);
         } catch {
-          /* ignore */
+          try {
+            router.push(authTokenRef.current ? "/(app)/notifications" : "/");
+          } catch {
+            /* ignore */
+          }
         }
-      }
-    });
+      },
+    );
     return () => sub.remove();
   }, []);
 
@@ -188,14 +195,18 @@ export default function PushNotificationsProvider({ children }) {
 
     await ensureAndroidAlertChannelAsync().catch(() => {});
 
-    const perms = await Notifications.getPermissionsAsync().catch(() => ({ status: 'undetermined' }));
+    const perms = await Notifications.getPermissionsAsync().catch(() => ({
+      status: "undetermined",
+    }));
     let status = perms?.status;
-    if (status !== 'granted') {
-      const requested = await Notifications.requestPermissionsAsync().catch(() => ({ status }));
+    if (status !== "granted") {
+      const requested = await Notifications.requestPermissionsAsync().catch(
+        () => ({ status }),
+      );
       status = requested?.status ?? status;
     }
-    if (status !== 'granted') {
-      if (Platform.OS === 'ios') {
+    if (status !== "granted") {
+      if (Platform.OS === "ios") {
         await Notifications.setBadgeCountAsync(0).catch(() => {});
       }
       return;
@@ -203,11 +214,21 @@ export default function PushNotificationsProvider({ children }) {
 
     await ensureMessagingNotificationCategory(Notifications);
 
-    const tokenValue = String(token || '');
-    const headersBearer = { ...getAuthHeaders(() => token), Authorization: `Bearer ${tokenValue}` };
-    const headersRaw = { ...getAuthHeaders(() => token), Authorization: tokenValue };
+    const tokenValue = String(token || "");
+    const headersBearer = {
+      ...getAuthHeaders(() => token),
+      Authorization: `Bearer ${tokenValue}`,
+    };
+    const headersRaw = {
+      ...getAuthHeaders(() => token),
+      Authorization: tokenValue,
+    };
 
-    const listUrl = api.notificationsQuery({ page: 1, limit: 50, filter: 'all' });
+    const listUrl = api.notificationsQuery({
+      page: 1,
+      limit: 50,
+      filter: "all",
+    });
     let res = await fetch(listUrl, { headers: headersBearer });
     let payload = await res.json().catch(() => ({}));
     if (!res.ok && (res.status === 401 || res.status === 403)) {
@@ -216,10 +237,12 @@ export default function PushNotificationsProvider({ children }) {
     }
     if (!res.ok || !isApiSuccess(payload)) return;
 
-    const items = extractItems(payload).map((row) => normalizeNotificationRow(row));
+    const items = extractItems(payload).map((row) =>
+      normalizeNotificationRow(row),
+    );
     const unread = items.filter((n) => !n?.read_at);
 
-    if (Platform.OS === 'ios') {
+    if (Platform.OS === "ios") {
       await Notifications.setBadgeCountAsync(unread.length).catch(() => {});
     }
 
@@ -230,14 +253,14 @@ export default function PushNotificationsProvider({ children }) {
       if (unread.length > 0) {
         await Notifications.scheduleNotificationAsync({
           content: {
-            title: 'Rwanda FDA',
-            subtitle: 'Updates',
+            title: "Rwanda FDA",
+            subtitle: "Updates",
             body:
               unread.length === 1
-                ? 'You have 1 unread update. Tap to open.'
+                ? "You have 1 unread update. Tap to open."
                 : `You have ${unread.length} unread updates. Tap to open.`,
-            sound: 'default',
-            data: { link: '/(app)/notifications' },
+            sound: "default",
+            data: { link: "/(app)/notifications" },
             categoryIdentifier: undefined,
           },
           trigger: null,
@@ -253,7 +276,11 @@ export default function PushNotificationsProvider({ children }) {
       seenAuthIdsRef.current.add(id);
 
       const link = item?.link || guessLink(item);
-      const content = await buildMessagingStyleNotificationContent(item, link, Notifications);
+      const content = await buildMessagingStyleNotificationContent(
+        item,
+        link,
+        Notifications,
+      );
 
       await Notifications.scheduleNotificationAsync({
         content,
@@ -271,25 +298,33 @@ export default function PushNotificationsProvider({ children }) {
 
     await ensureAndroidAlertChannelAsync().catch(() => {});
 
-    const perms = await Notifications.getPermissionsAsync().catch(() => ({ status: 'undetermined' }));
+    const perms = await Notifications.getPermissionsAsync().catch(() => ({
+      status: "undetermined",
+    }));
     let status = perms?.status;
-    if (status !== 'granted') {
-      const requested = await Notifications.requestPermissionsAsync().catch(() => ({ status }));
+    if (status !== "granted") {
+      const requested = await Notifications.requestPermissionsAsync().catch(
+        () => ({ status }),
+      );
       status = requested?.status ?? status;
     }
-    if (status !== 'granted') return;
+    if (status !== "granted") return;
 
     await ensureMessagingNotificationCategory(Notifications);
 
-    const res = await fetch(url, { headers: { Accept: 'application/json' } }).catch(() => null);
+    const res = await fetch(url, {
+      headers: { Accept: "application/json" },
+    }).catch(() => null);
     if (!res || !res.ok) return;
     const payload = await res.json().catch(() => ({}));
     if (!isApiSuccess(payload)) return;
 
-    const items = extractItems(payload).map((row) => normalizeNotificationRow(row));
+    const items = extractItems(payload).map((row) =>
+      normalizeNotificationRow(row),
+    );
     const candidates = items.filter((n) => !n?.read_at);
 
-    if (Platform.OS === 'ios') {
+    if (Platform.OS === "ios") {
       await Notifications.setBadgeCountAsync(candidates.length).catch(() => {});
     }
 
@@ -300,14 +335,18 @@ export default function PushNotificationsProvider({ children }) {
       if (candidates.length > 0) {
         await Notifications.scheduleNotificationAsync({
           content: {
-            title: 'Rwanda FDA',
-            subtitle: 'Announcements',
+            title: "Rwanda FDA",
+            subtitle: "Announcements",
             body:
               candidates.length === 1
-                ? String(candidates[0]?.title || candidates[0]?.message || 'New announcement')
+                ? String(
+                    candidates[0]?.title ||
+                      candidates[0]?.message ||
+                      "New announcement",
+                  )
                 : `${candidates.length} new announcements. Tap to read.`,
-            sound: 'default',
-            data: { link: '/' },
+            sound: "default",
+            data: { link: "/" },
           },
           trigger: null,
         }).catch(() => {});
@@ -321,7 +360,11 @@ export default function PushNotificationsProvider({ children }) {
 
       seenPublicIdsRef.current.add(id);
 
-      const content = await buildMessagingStyleNotificationContent(item, '/', Notifications);
+      const content = await buildMessagingStyleNotificationContent(
+        item,
+        "/",
+        Notifications,
+      );
 
       await Notifications.scheduleNotificationAsync({
         content,
@@ -336,7 +379,7 @@ export default function PushNotificationsProvider({ children }) {
     const wantPoll = Boolean(token) || hasPublic;
 
     if (!Notifications || !wantPoll) {
-      if (!token && Notifications && Platform.OS === 'ios') {
+      if (!token && Notifications && Platform.OS === "ios") {
         Notifications.setBadgeCountAsync(0).catch(() => {});
       }
       return undefined;
@@ -361,8 +404,8 @@ export default function PushNotificationsProvider({ children }) {
     tick();
     const intervalId = setInterval(tick, NOTIFICATION_POLL_MS);
 
-    const appSub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') tick();
+    const appSub = AppState.addEventListener("change", (next) => {
+      if (next === "active") tick();
     });
 
     return () => {
@@ -376,7 +419,7 @@ export default function PushNotificationsProvider({ children }) {
     seenAuthIdsRef.current = new Set();
     hydratedAuthRef.current = false;
     const Notifications = getNotificationsModule();
-    if (Notifications && Platform.OS === 'ios' && !api.publicNotifications) {
+    if (Notifications && Platform.OS === "ios" && !api.publicNotifications) {
       Notifications.setBadgeCountAsync(0).catch(() => {});
     }
   }, [token]);

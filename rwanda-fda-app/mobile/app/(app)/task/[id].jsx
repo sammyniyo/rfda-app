@@ -219,6 +219,17 @@ export default function TaskDetailScreen() {
                 </Text>
               </View>
             </View>
+            {task.working_on ? (
+              <View style={[styles.quickStat, { backgroundColor: cardBg, borderColor }]}>
+                <Ionicons name="person-add-outline" size={14} color={colors.fdaBlue} />
+                <View style={styles.quickStatTextBlock}>
+                  <Text style={[styles.quickStatLabel, { color: textSubtle }]}>Working on it</Text>
+                  <Text style={[styles.quickStatValue, { color: textMain }]} numberOfLines={2}>
+                    {task.working_on}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
             <View style={[styles.quickStat, { backgroundColor: cardBg, borderColor }]}>
               <Ionicons name="time-outline" size={14} color={colors.warning} />
               <View style={styles.quickStatTextBlock}>
@@ -298,6 +309,7 @@ export default function TaskDetailScreen() {
             ['Type', [task.type_label, task.application_type].filter(Boolean).join(' · ') || '—'],
             ['Application', task.application_id ? `#${task.application_id}` : '—'],
             ['Assigned by', task.assigned_by || '—'],
+            ['Working on it', task.working_on || '—'],
             ['Created', formatDateTime(task.created_at)],
             ['Updated', formatDateTime(task.updated_at)],
             ['Completed', formatDateTime(task.completed_at)],
